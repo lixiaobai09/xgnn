@@ -80,7 +80,7 @@ cuda_flags = [
     # '-G',
     #  '--ptxas-options=-v',
     #  '-DPIPELINE',
-    # '-Xptxas', '-dlcm=cv', # cache volatile   
+    # '-Xptxas', '-dlcm=cv', # cache volatile
     # '-DSXN_NAIVE_HASHMAP',
     '--compiler-options', "'-fPIC'",
     '-gencode=arch=compute_35,code=sm_35',  # K40m
@@ -163,6 +163,7 @@ setup(
                 'samgraph/common/cuda/cuda_sampling_khop0.cu',
                 'samgraph/common/cuda/cuda_sampling_khop1.cu',
                 'samgraph/common/cuda/cuda_sampling_khop2.cu',
+                'samgraph/common/cuda/cuda_sampling_khop3.cu',
                 'samgraph/common/cuda/cuda_sampling_random_walk.cu',
                 'samgraph/common/cuda/cuda_sampling_weighted_khop.cu',
                 'samgraph/common/cuda/cuda_sampling_weighted_khop_prefix.cu',

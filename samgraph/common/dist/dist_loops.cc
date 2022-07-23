@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -121,7 +121,7 @@ void DoGPUSample(TaskPtr task) {
     const size_t fanout = fanouts[i];
     const IdType *input = cur_input->CPtr<IdType>();
     const size_t num_input = cur_input->Shape()[0];
-    LOG(DEBUG) << "DoGPUSample: begin sample layer=" << i 
+    LOG(DEBUG) << "DoGPUSample: begin sample layer=" << i
                << " ctx=" << sampler_ctx
                << " num_input=" << num_input;
 
@@ -183,6 +183,11 @@ void DoGPUSample(TaskPtr task) {
       case kWeightedKHopHashDedup:
         cuda::GPUSampleWeightedKHopHashDedup(indptr, const_cast<IdType*>(indices), const_cast<float*>(prob_table), alias_table, input,
             num_input, fanout, out_src, out_dst, num_out, sampler_ctx, sample_stream, random_states, task->key);
+        break;
+      case kKHop3:
+        GPUSampleKHop3(indptr, const_cast<IdType*>(indices), input, num_input, fanout, out_src,
+                      out_dst, num_out, sampler_ctx, sample_stream,
+                      random_states, task->key);
         break;
       default:
         CHECK(0);
@@ -505,7 +510,7 @@ void DoFeatureCopy(TaskPtr task) {
 
   Profiler::Get().LogStep(task->key, kLogL1FeatureBytes,
                           task->input_feat->NumBytes());
-  Profiler::Get().LogStep(task->key, kLogL1LabelBytes, 
+  Profiler::Get().LogStep(task->key, kLogL1LabelBytes,
                           task->output_label->NumBytes());
   Profiler::Get().LogEpochAdd(task->key, kLogEpochFeatureBytes,
                               task->input_feat->NumBytes());
@@ -562,7 +567,7 @@ void DoSwitchCacheFeatureCopy(TaskPtr task) {
 
   auto dataset = DistEngine::Get()->GetGraphDataset();
   auto cache_manager = DistEngine::Get()->GetGPUCacheManager();
-  
+
   auto input_nodes = task->input_nodes;
   auto feat = dataset->feat;
   auto feat_dim = dataset->feat->Shape()[1];
@@ -979,13 +984,13 @@ void DoArch6CacheFeatureCopy(TaskPtr task) {
   size_t num_output_miss = task->miss_cache_index.num_miss;
   size_t num_output_cache = task->miss_cache_index.num_cache;
 
-  IdType *trainer_output_miss_src_index = 
+  IdType *trainer_output_miss_src_index =
       task->miss_cache_index.miss_src_index->Ptr<IdType>();
-  IdType *trainer_output_miss_dst_index = 
+  IdType *trainer_output_miss_dst_index =
       task->miss_cache_index.miss_dst_index->Ptr<IdType>();
-  IdType *trainer_output_cache_src_index = 
+  IdType *trainer_output_cache_src_index =
       task->miss_cache_index.cache_src_index->Ptr<IdType>();
-  IdType *trainer_output_cache_dst_index = 
+  IdType *trainer_output_cache_dst_index =
       task->miss_cache_index.cache_dst_index->Ptr<IdType>();
 
   CHECK_EQ(num_output_miss + num_output_cache, num_input);
@@ -1010,7 +1015,7 @@ void DoArch6CacheFeatureCopy(TaskPtr task) {
   // 2. Extract the miss data
   Timer t2;
 
-  auto cpu_output_miss = Tensor::Empty(feat_type, {num_output_miss, feat_dim}, CPU(), ""); 
+  auto cpu_output_miss = Tensor::Empty(feat_type, {num_output_miss, feat_dim}, CPU(), "");
   cache_manager->ExtractMissData(cpu_output_miss->MutableData(), cpu_output_miss_src_index,
                                  num_output_miss);
 

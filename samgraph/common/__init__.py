@@ -1,12 +1,12 @@
 """
   Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
-  
+
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
-  
+
       http://www.apache.org/licenses/LICENSE-2.0
-  
+
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -55,6 +55,7 @@ kRandomWalk            = 3
 kWeightedKHopPrefix    = 4
 kKHop2                 = 5
 kWeightedKHopHashDedup = 6
+kKHop3                 = 7
 
 kArch0 = 0
 kArch1 = 1
@@ -87,6 +88,7 @@ sample_types = {
     'khop0'                   : kKHop0,
     'khop1'                   : kKHop1,
     'khop2'                   : kKHop2,
+    'khop3'                   : kKHop3,
     'random_walk'             : kRandomWalk,
     'weighted_khop'           : kWeightedKHop,
     'weighted_khop_prefix'    : kWeightedKHopPrefix,

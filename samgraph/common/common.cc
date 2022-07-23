@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -99,7 +99,7 @@ void Tensor::Scale(DataType dt, std::vector<size_t> shape, Context ctx, std::str
     _ctx = ctx;
     _name = name;
     return;
-  } 
+  }
   CHECK(_dtype == dt);
   CHECK(_ctx == ctx);
   CHECK(_shape.size() == shape.size());
@@ -393,7 +393,7 @@ TensorPtr Tensor::UMCopyTo(TensorPtr source, std::vector<Context> ctxes, std::ve
     ctx.device_type = DeviceType::kGPU_UM;
   }
   CHECK(ctx.device_type == DeviceType::kGPU_UM);
- 
+
   tensor->_dtype = source->_dtype;
   tensor->_shape = shape;
   tensor->_nbytes = source->_nbytes;
@@ -559,6 +559,9 @@ std::ostream &operator<<(std::ostream &os, const SampleType type) {
       break;
     case kWeightedKHopHashDedup:
       os << "WeightedKHopHashDedup";
+      break;
+    case kKHop3:
+      os << "KHop3";
       break;
     default:
       CHECK(false);

@@ -55,6 +55,7 @@ enum SampleType {
   kWeightedKHopPrefix,
   kKHop2,
   kWeightedKHopHashDedup,
+  kKHop3,
 };
 
 // arch0: vanilla mode(CPU sampling + GPU training)
@@ -126,7 +127,7 @@ struct Context {
       os << "mmap:" << ctx.device_id;
       return os;
     case DeviceType::kCPU:
-      os << "cpu:" << ctx.device_id;    
+      os << "cpu:" << ctx.device_id;
       return os;
     case DeviceType::kGPU:
       os << "gpu:" << ctx.device_id;
@@ -159,8 +160,8 @@ class Tensor {
   DataType Type() const { return _dtype; }
   const std::vector<size_t>& Shape() const { return _shape; }
   const void* Data() const { return _data; }
-  template<typename T> T* Ptr(){ 
-    CHECK(_data == nullptr || (sizeof(T) == GetDataTypeBytes(_dtype))); 
+  template<typename T> T* Ptr(){
+    CHECK(_data == nullptr || (sizeof(T) == GetDataTypeBytes(_dtype)));
     return static_cast<T*>(_data);
   }
   template<typename T> const T* CPtr() const { return const_cast<Tensor*>(this)->Ptr<T>(); }
