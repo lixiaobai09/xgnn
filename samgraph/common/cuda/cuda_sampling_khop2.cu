@@ -32,14 +32,17 @@
 #include "cuda_function.h"
 #include "cuda_utils.h"
 
-// #define DGL_PARALLEL_KHOP2
+#define ORIGIN_KHOP2
+// #define KHOP2_REVERSION_NO_MODIFIED
 
 namespace samgraph {
 namespace common {
 namespace cuda {
 
 namespace {
-#ifndef DGL_PARALLEL_KHOP2
+
+#if (defined ORIGIN_KHOP2)
+
 template <size_t BLOCK_SIZE, size_t TILE_SIZE>
 __global__ void sample_khop2(const IdType *indptr, IdType *indices,
                              const IdType *input, const size_t num_input,
@@ -89,106 +92,120 @@ __global__ void sample_khop2(const IdType *indptr, IdType *indices,
 
   random_states[i] = local_state;
 }
-#else
+
+#elif (defined KHOP2_REVERSION_NO_MODIFIED)
 
 constexpr int HASH_SHIFT = 7;
 constexpr int HASH_MASK  = ((1 << HASH_SHIFT) - 1);
 constexpr int HASHTABLE_SIZE = (1 << HASH_SHIFT);
 
 struct HashItem {
-  IdType key_val;
+  IdType key;
+  IdType value;
 };
 
-__device__ IdType _HashtableInsertVersion(HashItem* hashtable, IdType key, IdType version) {
+__forceinline__ __device__ IdType _FindPos(HashItem* hash_table, IdType key) {
   IdType pos = (key & HASH_MASK);
   IdType offset = 1;
-  while (true) {
-    IdType old = atomicCAS(&hashtable[pos].key_val, 0xffffffff, key);
-    if (old == 0xffffffff || old == key) {
+  while(true) {
+    IdType old_key = hash_table[pos].key;
+    if (old_key == Constant::kEmptyKey || old_key == key) {
       return pos;
     }
     pos = ((pos + offset) & HASH_MASK);
-    offset += 1;
+    assert(offset < HASHTABLE_SIZE);
+    ++offset;
   }
 }
 
-__device__ IdType _HashtableSwapAt(HashItem* hashtable, IdType pos, IdType val) {
-  return atomicExch(&hashtable[pos].key_val, val);
-}
-
-template <size_t WARP_SIZE, size_t BLOCK_WARP, size_t TILE_SIZE>
+template <size_t BLOCK_SIZE, size_t TILE_SIZE>
 __global__ void sample_khop2(const IdType *indptr, IdType *indices,
                              const IdType *input, const size_t num_input,
                              const size_t fanout, IdType *tmp_src,
                              IdType *tmp_dst, curandState *random_states,
                              size_t num_random_states) {
-  assert(WARP_SIZE == blockDim.x);
-  assert(BLOCK_WARP == blockDim.y);
-  IdType index = TILE_SIZE * blockIdx.x + threadIdx.y;
-  const IdType last_index = min(TILE_SIZE * (blockIdx.x + 1), num_input);
+  assert(BLOCK_SIZE == blockDim.x);
+  const size_t block_start = TILE_SIZE * blockIdx.x;
+  const size_t block_end = TILE_SIZE * (blockIdx.x + 1);
 
-  IdType out_row = blockIdx.x * TILE_SIZE + threadIdx.y;
-
-  __shared__ HashItem shared_hashtable[BLOCK_WARP][HASHTABLE_SIZE];
-
-  auto hashtable = shared_hashtable[threadIdx.y];
-  for (int idx = threadIdx.x; idx < HASHTABLE_SIZE; idx += WARP_SIZE) {
-    hashtable[idx].key_val = 0xffffffff;
-    // hashtable[idx].version = 0xffffffff;
-    // hashtable[idx].flag = 0;
-  }
-
-  IdType i =  blockIdx.x * blockDim.y + threadIdx.y;
+  size_t i = blockDim.x * blockIdx.x + threadIdx.x;
   assert(i < num_random_states);
   curandState local_state = random_states[i];
 
-  for (; index < TILE_SIZE * (blockIdx.x + 1); index += BLOCK_WARP) {
-    if (index >= num_input) {
-      __syncthreads();
-      __syncthreads();
-      __syncthreads();
-      continue;
-    }
-    const IdType rid = input[index];
-    const IdType off = indptr[rid];
-    const IdType len = indptr[rid + 1] - indptr[rid];
-
-    if (len <= fanout) {
-      size_t j = threadIdx.x;
-      for (; j < len; j += WARP_SIZE) {
-        tmp_src[index * fanout + j] = rid;
-        tmp_dst[index * fanout + j] = indices[off + j];
-      }
-
-      for (; j < fanout; j += WARP_SIZE) {
-        tmp_src[index * fanout + j] = Constant::kEmptyKey;
-        tmp_dst[index * fanout + j] = Constant::kEmptyKey;
-      }
-      __syncthreads();
-      __syncthreads();
-    } else {
-      IdType* hash_pos = &tmp_src[index * fanout];
-      for (size_t j = threadIdx.x; j < fanout; j += WARP_SIZE) {
-        IdType rand = (curand(&local_state) % (len - j)) + j;
-        hash_pos[j] = _HashtableInsertVersion(hashtable, rand, out_row);
-      }
-      __syncthreads();
-      for (size_t j = threadIdx.x; j < fanout; j += WARP_SIZE) {
-        IdType val = _HashtableSwapAt(hashtable, hash_pos[j], j);
-        // tmp_src[index * fanout + j] = rid;
-        tmp_dst[index * fanout + j] = indices[off + val];
-      }
-      __syncthreads();
-      for (size_t j = threadIdx.x; j < fanout; j += WARP_SIZE) {
-        hashtable[hash_pos[j]].key_val = 0xffffffff;
-        tmp_src[index * fanout + j] = rid;
-      }
-    }
-    __syncthreads();
+  assert(2 * fanout < HASHTABLE_SIZE);
+  HashItem hash_table[HASHTABLE_SIZE];
+  for (IdType j = 0; j < HASHTABLE_SIZE; ++j) {
+    hash_table[j].key = Constant::kEmptyKey;
   }
+
+  for (size_t index = threadIdx.x + block_start; index < block_end;
+       index += BLOCK_SIZE) {
+    if (index < num_input) {
+      const IdType rid = input[index];
+      const IdType off = indptr[rid];
+      const IdType len = indptr[rid + 1] - indptr[rid];
+
+      if (len <= fanout) {
+        size_t j = 0;
+        for (; j < len; ++j) {
+          tmp_src[index * fanout + j] = rid;
+          tmp_dst[index * fanout + j] = indices[off + j];
+        }
+
+        for (; j < fanout; ++j) {
+          tmp_src[index * fanout + j] = Constant::kEmptyKey;
+          tmp_dst[index * fanout + j] = Constant::kEmptyKey;
+        }
+      } else {
+        for (IdType j = 0; j < fanout; ++j) {
+          hash_table[j].key = j;
+          hash_table[j].value = j;
+        }
+        IdType *tmp_idx = (tmp_src + index * fanout);
+        for (IdType j = 0; j < fanout; ++j) {
+          IdType selected_j = curand(&local_state) % (len -j) + j;
+          assert(selected_j >= j && selected_j < len);
+          IdType tmp_idx_j = 0;
+          if (selected_j < fanout) {
+            tmp_idx_j = selected_j;
+          }
+          else {
+            IdType pos = _FindPos(hash_table, selected_j);
+            if (hash_table[pos].key == Constant::kEmptyKey) {
+              hash_table[pos].key = selected_j;
+              hash_table[pos].value = selected_j;
+            }
+            tmp_idx_j = pos;
+          }
+          // swap
+          IdType old_value = hash_table[tmp_idx_j].value;
+          hash_table[tmp_idx_j].value = hash_table[j].value;
+          hash_table[j].value = old_value;
+          tmp_idx[j] = tmp_idx_j;
+        }
+        for (IdType j =0; j < fanout; ++j) {
+          IdType tmp_idx_j = tmp_idx[j];
+          IdType indices_pos = hash_table[j].value;
+          assert(indices_pos < len);
+          tmp_dst[index * fanout + j] = indices[off + indices_pos];
+          tmp_src[index * fanout + j] = rid;
+          // reset the hash_table
+          if (tmp_idx_j >= fanout) {
+            hash_table[tmp_idx_j].key = Constant::kEmptyKey;
+            hash_table[tmp_idx_j].value = Constant::kEmptyKey;
+          }
+          hash_table[j].key = Constant::kEmptyKey;
+          hash_table[j].value = Constant::kEmptyKey;
+        }
+      }
+    }
+  }
+
   random_states[i] = local_state;
 }
 
+#else
+#error SHOULD DEFINE MACRO ORIGIN_KHOP2 / KHOP2_REVERSION_NO_MODIFIED
 #endif
 
 template <size_t BLOCK_SIZE, size_t TILE_SIZE>
@@ -301,27 +318,14 @@ void GPUSampleKHop2(const IdType *indptr, IdType *indices,
   LOG(DEBUG) << "GPUSample: cuda tmp_dst malloc "
              << ToReadableSize(num_input * fanout * sizeof(IdType));
 
-#ifndef DGL_PARALLEL_KHOP2
   Timer _kt;
   sample_khop2<Constant::kCudaBlockSize, Constant::kCudaTileSize>
       <<<grid, block, 0, cu_stream>>>(
           indptr, indices, input, num_input, fanout, tmp_src, tmp_dst,
           random_states->GetStates(), random_states->NumStates());
-#else
-  static_assert(sizeof(unsigned long long) == 8, "");
-  const int WARP_SIZE = 32;
-  const int BLOCK_WARP = 128 / WARP_SIZE;
-  const int TILE_SIZE = BLOCK_WARP * 16;
-  const dim3 block_t(WARP_SIZE, BLOCK_WARP);
-  const dim3 grid_t((num_input + TILE_SIZE - 1) / TILE_SIZE);
-  Timer _kt;
-  sample_khop2<WARP_SIZE, BLOCK_WARP, TILE_SIZE> <<<grid_t, block_t, 0, cu_stream>>> (
-          indptr, indices, input, num_input, fanout, tmp_src, tmp_dst,
-          random_states->GetStates(), random_states->NumStates());
-#endif
   sampler_device->StreamSync(ctx, stream);
   double kernel_time = _kt.Passed();
-  LOG(DEBUG) << "sample_khop0 input=" << num_input 
+  LOG(DEBUG) << "sample_khop0 input=" << num_input
              << " fanout=" << fanout << " " << kernel_time << "s";
   double sample_time = t0.Passed();
 
