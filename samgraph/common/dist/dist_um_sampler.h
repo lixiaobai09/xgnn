@@ -25,7 +25,6 @@ public:
     Context Ctx() { return _sampler_ctx; };
     StreamHandle SampleStream() { return  _sample_stream; }
     StreamHandle CopyStream() { return _sampler_copy_stream; }
-    sem_t* WorkerSem() { return &_sem; }
 
     Shuffler* GetShuffler() { return _shuffler; }
     cuda::OrderedHashTable* GetHashTable() { return _hashtable; }
@@ -36,16 +35,27 @@ public:
     std::thread::id WorkerId();
 
     void SyncSampler();
-    void ReleaseSem();
-    void AcquireSem();
+    // for main caller
+    void SendStartSample();
+    // for sampler thread
+    void WaitStartSample();
+    // for sampler thread
+    void SendEndSample();
+    // for main caller
+    void WaitEndSample();
     void CacheTableInit(const IdType* cpu_hashtb);
-    void CreateWorker(std::function<bool(sem_t*)> sample_function, sem_t*  sem);
+    void CreateWorker(std::function<bool()> sample_function);
 
 
 private:
     IdType _sampler_id;
     std::thread* _work_thread;
-    sem_t _sem;
+    enum class SemType {
+      kStart = 0,
+      kEnd,
+      kNum
+    };
+    std::vector<sem_t> _sem;
 
     Context _sampler_ctx;
     StreamHandle _sample_stream;
@@ -61,7 +71,7 @@ private:
 
     IdType* _cache_hashtable;
 };
-    
+
 } // namespace dist
 } // namespace common
 } // namespace samgraph

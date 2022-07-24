@@ -18,7 +18,7 @@
 
 /**
  *  multi-sampler(thread) --> trainer (based on arch5)
- *  
+ *
  */
 
 namespace samgraph {
@@ -75,7 +75,7 @@ bool RunSampleSubLoopOnce() {
   next_q->Send(task);
   send_time = t3.Passed();
 
-  // epoch profile 
+  // epoch profile
   LOG(DEBUG) << "sampler(" << sampler->Ctx() << ") task_key=" << task->key
              << " sample time " << sample_time;
   Profiler::Get().LogEpochAdd(task->key, kLogEpochSampleTime,
@@ -99,18 +99,18 @@ bool RunSampleSubLoopOnce() {
   LOG(DEBUG) << "sampler(" << sampler->Ctx() << ") sample once done "
              << "task_key=" << task->key;
   return true;
-} 
+}
 
 
-bool RunSample(sem_t* sem) {
-  sem_wait(sem);
+bool RunSample() {
   auto tid = std::this_thread::get_id();
   auto sampler = DistEngine::Get()->GetUMSamplerByTid(tid);
+  sampler->WaitStartSample();
   auto ctx = sampler->Ctx();
   CUDA_CALL(cudaSetDevice(ctx.device_id));
   CHECK(sampler != nullptr);
   while (1) {
-    sem_wait(sem);
+    sampler->WaitStartSample();
     RunSampleSubLoopOnce();
 
     auto shuffer = dynamic_cast<DistShuffler*>(sampler->GetShuffler());
@@ -119,6 +119,7 @@ bool RunSample(sem_t* sem) {
     LOG(DEBUG) << "sampler(" << ctx << ") sampling done, "
                << " epoch=" << epoch
                << " global step=" << step;
+    sampler->SendEndSample();
     if (epoch + 1 == sampler->GetShuffler()->NumEpoch() &&  shuffer->IsLastBatch()) {
       break;
     }
@@ -264,23 +265,34 @@ void RunArch9LoopsOnce(DistType dist_type) {
       for (int i = 0; i < um_samplers.size(); i++) {
         auto sampler = um_samplers[i];
         CHECK(sampler->WorkerId() == static_cast<std::thread::id>(0));
-        sampler->CreateWorker(RunSample, sampler->WorkerSem());
-        LOG(INFO) << "sampler(" << sampler->Ctx() << ") " 
+        sampler->CreateWorker(RunSample);
+        LOG(INFO) << "sampler(" << sampler->Ctx() << ") "
                   << "create sample worker(0x" << std::hex << sampler->WorkerId() << ")";
       }
       for (int i = 0; i < um_samplers.size(); i++) {
-        um_samplers[i]->ReleaseSem();
+        um_samplers[i]->SendStartSample();
       }
     }
 
     // RunSampleSubLoopOnce();
-    for (int i = 0; i < um_samplers.size(); i++) { 
+    for (int i = 0; i < um_samplers.size(); i++) {
       auto sampler = um_samplers[i];
       if (step_run_loops_cnt < sampler->GetShuffler()->NumLocalStep()) {
-        LOG(DEBUG) << "sampler(" << sampler->Ctx() <<  ") issue sampling task, "
-                   << "epoch=" << epoch_run_loops_cnt
-                   << " local step=" << step_run_loops_cnt;
-        sampler->ReleaseSem();
+        LOG(DEBUG) << "sampler(" << sampler->Ctx()
+                   << ") start once sample, (epoch, local_step) = ("
+                   << epoch_run_loops_cnt
+                   << ", " << step_run_loops_cnt << ")";
+        sampler->SendStartSample();
+      }
+    }
+    for (int i = 0; i < um_samplers.size(); i++) {
+      auto sampler = um_samplers[i];
+      if (step_run_loops_cnt < sampler->GetShuffler()->NumLocalStep()) {
+        sampler->WaitEndSample();
+        LOG(DEBUG) << "sampler(" << sampler->Ctx()
+                   << ") end once sample, (epoch, local_step) = ("
+                   << epoch_run_loops_cnt
+                   << ", " << step_run_loops_cnt << ")";
       }
     }
     step_run_loops_cnt++;
@@ -300,7 +312,7 @@ void RunArch9LoopsOnce(DistType dist_type) {
   } else {
     LOG(FATAL) << "dist type is illegal!";
   }
-} 
+}
 
 ExtractFunction GetArch9Loops() {
   return DataCopySubLoop;
