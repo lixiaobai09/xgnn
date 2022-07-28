@@ -30,7 +30,7 @@ size_t get_cuda_used(Context ctx) {
 }
 
 
-DistUMSampler::DistUMSampler(Dataset& dataset, IdType sampler_id) 
+DistUMSampler::DistUMSampler(Dataset& dataset, IdType sampler_id)
     : _sampler_id(sampler_id),
     _work_thread(nullptr),
     _sampler_ctx(RunConfig::unified_memory_ctxes[sampler_id]),
@@ -42,11 +42,14 @@ DistUMSampler::DistUMSampler(Dataset& dataset, IdType sampler_id)
   Device::Get(_sampler_ctx)->StreamSync(_sampler_ctx, _sample_stream);
   Device::Get(_sampler_ctx)->StreamSync(_sampler_ctx, _sampler_copy_stream);
 
-  sem_init(&_sem, 0, 0);
+  _sem.resize(static_cast<int>(SemType::kNum));
+  for (auto &sem : _sem) {
+    sem_init(&sem, 0, 0);
+  }
 
   _shuffler = new DistShuffler(
-    Tensor::CopyTo(dataset.train_set, CPU()), 
-    DistEngine::Get()->NumEpoch(), DistEngine::Get()->GetBatchSize(), 
+    Tensor::CopyTo(dataset.train_set, CPU()),
+    DistEngine::Get()->NumEpoch(), DistEngine::Get()->GetBatchSize(),
     sampler_id, RunConfig::num_sample_worker, RunConfig::num_train_worker, false);
   // if (_shuffler->NumStep() > mq_size) {
   //   LOG(FATAL) << "num step exceeds memory queue size!";
@@ -54,15 +57,15 @@ DistUMSampler::DistUMSampler(Dataset& dataset, IdType sampler_id)
 
   _hashtable = new cuda::OrderedHashTable(
     PredictNumNodes(
-      DistEngine::Get()->GetBatchSize(), 
-      DistEngine::Get()->GetFanout(), 
+      DistEngine::Get()->GetBatchSize(),
+      DistEngine::Get()->GetFanout(),
       DistEngine::Get()->GetFanout().size()),
     _sampler_ctx, _sampler_copy_stream
   );
   LOG_MEM_USAGE(INFO, _sampler_ctx, "Init UM Sampler after create hash table");
 
   _random_states = new cuda::GPURandomStates(
-    RunConfig::sample_type, 
+    RunConfig::sample_type,
     DistEngine::Get()->GetFanout(),
     DistEngine::Get()->GetBatchSize(),
     _sampler_ctx);
@@ -86,7 +89,7 @@ DistUMSampler::DistUMSampler(Dataset& dataset, IdType sampler_id)
   _graph_pool = new GraphPool(RunConfig::max_copying_jobs);
 
   LOG_MEM_USAGE(WARNING, _sampler_ctx, "finish um sampler initialization") ;
-} 
+}
 
 
 DistUMSampler::~DistUMSampler() {
@@ -99,15 +102,17 @@ DistUMSampler::~DistUMSampler() {
   SyncSampler();
   GetDevice()->FreeStream(Ctx(), _sample_stream);
   GetDevice()->FreeStream(Ctx(), _sampler_copy_stream);
- 
-  sem_destroy(&_sem);
-  
+
+  for (auto &sem : _sem) {
+    sem_destroy(&sem);
+  }
+
   delete _shuffler;
   delete _hashtable;
   delete _random_states;
   if (_frequency_hashmap) delete _frequency_hashmap;
   delete _graph_pool;
-  
+
   if (_cache_hashtable != nullptr) {
     GetDevice()->FreeDataSpace(Ctx(), _cache_hashtable);
   }
@@ -129,28 +134,39 @@ void DistUMSampler::SyncSampler() {
   GetDevice()->StreamSync(Ctx(), _sampler_copy_stream);
 }
 
-void DistUMSampler::ReleaseSem() {
-  sem_post(&_sem);
+// for main caller
+void DistUMSampler::SendStartSample() {
+  sem_post(&_sem[static_cast<int>(SemType::kStart)]);
 }
 
-void DistUMSampler::AcquireSem() {
-  sem_wait(&_sem);
+// for main caller
+void DistUMSampler::WaitEndSample() {
+  sem_wait(&_sem[static_cast<int>(SemType::kEnd)]);
 }
 
+// for sampler thread
+void DistUMSampler::WaitStartSample() {
+  sem_wait(&_sem[static_cast<int>(SemType::kStart)]);
+}
+
+// for sampler thread
+void DistUMSampler::SendEndSample() {
+  sem_post(&_sem[static_cast<int>(SemType::kEnd)]);
+}
 
 void DistUMSampler::CacheTableInit(const IdType* cpu_hashtb) {
   size_t num_nodes = _global_dataset.num_node;
   _cache_hashtable = static_cast<IdType*>(GetDevice()->AllocDataSpace(
     Ctx(), sizeof(IdType) * num_nodes));
-  
-  GetDevice()->CopyDataFromTo(cpu_hashtb, 0, _cache_hashtable, 0, 
+
+  GetDevice()->CopyDataFromTo(cpu_hashtb, 0, _cache_hashtable, 0,
     sizeof(IdType) * num_nodes, CPU(), Ctx(), _sample_stream);
-  
+
   LOG_MEM_USAGE(INFO, Ctx(), "after init cache table");
 }
 
-void DistUMSampler::CreateWorker(std::function<bool(sem_t*)> sample_function, sem_t* sem) {
-  this->_work_thread = new std::thread(sample_function, sem);
+void DistUMSampler::CreateWorker(std::function<bool()> sample_function) {
+  this->_work_thread = new std::thread(sample_function);
 }
 
 

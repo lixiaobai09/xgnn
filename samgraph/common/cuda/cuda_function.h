@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -65,11 +65,13 @@ void GPUSampleWeightedKHopPrefix(const IdType *indptr, const IdType *indices,
                            IdType *out_dst, size_t *num_out, Context ctx,
                            StreamHandle stream, GPURandomStates *random_states,
                            uint64_t task_key);
+
 void GPUSampleKHop2(const IdType *indptr, IdType *indices,
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,
                     GPURandomStates *random_states, uint64_t task_key);
+
 void GPUSampleWeightedKHopHashDedup(const IdType *indptr, const IdType *indices,
                            const float *prob_table, const IdType *alias_table,
                            const IdType *input, const size_t num_input,
@@ -77,6 +79,12 @@ void GPUSampleWeightedKHopHashDedup(const IdType *indptr, const IdType *indices,
                            IdType *out_dst, size_t *num_out, Context ctx,
                            StreamHandle stream, GPURandomStates *random_states,
                            uint64_t task_key);
+
+void GPUSampleKHop3(const IdType *indptr, IdType *indices,
+                    const IdType *input, const size_t num_input,
+                    const size_t fanout, IdType *out_src, IdType *out_dst,
+                    size_t *num_out, Context ctx, StreamHandle stream,
+                    GPURandomStates *random_states, uint64_t task_key);
 
 void GPUMapEdges(const IdType *const global_src, IdType *const new_global_src,
                  const IdType *const global_dst, IdType *const new_global_dst,
@@ -111,7 +119,7 @@ void GetMissCacheIndex(
     IdType *output_cache_dst_index, size_t *num_output_cache,
     const IdType *nodes, const size_t num_nodes, StreamHandle stream);
 
- 
+
 }  // namespace cuda
 }  // namespace common
 }  // namespace samgraph

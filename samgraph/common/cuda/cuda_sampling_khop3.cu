@@ -32,85 +32,40 @@
 #include "cuda_function.h"
 #include "cuda_utils.h"
 
-#define ORIGIN_KHOP2
-// #define KHOP2_REVERSION_NO_MODIFIED
-
 namespace samgraph {
 namespace common {
 namespace cuda {
 
 namespace {
 
-#if (defined ORIGIN_KHOP2)
-
-template <size_t BLOCK_SIZE, size_t TILE_SIZE>
-__global__ void sample_khop2(const IdType *indptr, IdType *indices,
-                             const IdType *input, const size_t num_input,
-                             const size_t fanout, IdType *tmp_src,
-                             IdType *tmp_dst, curandState *random_states,
-                             size_t num_random_states) {
-  assert(BLOCK_SIZE == blockDim.x);
-  const size_t block_start = TILE_SIZE * blockIdx.x;
-  const size_t block_end = TILE_SIZE * (blockIdx.x + 1);
-
-  size_t i = blockDim.x * blockIdx.x + threadIdx.x;
-  assert(i < num_random_states);
-  curandState local_state = random_states[i];
-
-  for (size_t index = threadIdx.x + block_start; index < block_end;
-       index += BLOCK_SIZE) {
-    if (index < num_input) {
-      const IdType rid = input[index];
-      const IdType off = indptr[rid];
-      const IdType len = indptr[rid + 1] - indptr[rid];
-
-      if (len <= fanout) {
-        size_t j = 0;
-        for (; j < len; ++j) {
-          tmp_src[index * fanout + j] = rid;
-          tmp_dst[index * fanout + j] = indices[off + j];
-        }
-
-        for (; j < fanout; ++j) {
-          tmp_src[index * fanout + j] = Constant::kEmptyKey;
-          tmp_dst[index * fanout + j] = Constant::kEmptyKey;
-        }
-      } else {
-        for (size_t j = 0; j < fanout; ++j) {
-          // now we have $len - j$ cancidate
-          size_t selected_j = curand(&local_state) % (len - j);
-          IdType selected_node_id = indices[off + selected_j];
-          tmp_src[index * fanout + j] = rid;
-          tmp_dst[index * fanout + j] = selected_node_id;
-          // swap indices[off+len-j-1] with indices[off+ selected_j];
-          indices[off + selected_j] = indices[off+len-j-1];
-          indices[off+len-j-1] = selected_node_id;
-        }
-      }
-    }
-  }
-
-  random_states[i] = local_state;
-}
-
-#elif (defined KHOP2_REVERSION_NO_MODIFIED)
-
 constexpr int HASH_SHIFT = 7;
 constexpr int HASH_MASK  = ((1 << HASH_SHIFT) - 1);
 constexpr int HASHTABLE_SIZE = (1 << HASH_SHIFT);
+constexpr IdType HASH_EMPTY = 0xffffffff;
 
-struct HashItem {
-  IdType key;
-  IdType value;
+struct DeviceSet {
+  IdType hashtable[HASHTABLE_SIZE];
+  IdType count;
 };
 
-__forceinline__ __device__ IdType _FindPos(HashItem* hash_table, IdType key) {
+__forceinline__ __device__ void _SetInsert(DeviceSet *d_set,
+    IdType *items, const IdType key, const IdType num_limit) {
   IdType pos = (key & HASH_MASK);
   IdType offset = 1;
-  while(true) {
-    IdType old_key = hash_table[pos].key;
-    if (old_key == Constant::kEmptyKey || old_key == key) {
-      return pos;
+  while(d_set->count < num_limit) {
+    IdType old_key = atomicCAS( &(d_set->hashtable[pos]), HASH_EMPTY, key);
+    if (old_key == HASH_EMPTY) {
+      IdType old_count = atomicAdd(&(d_set->count), 1);
+      if (old_count >= num_limit) {
+        atomicSub(&(d_set->count), 1);
+        d_set->hashtable[pos] = HASH_EMPTY;
+      } else {
+        items[old_count] = pos;
+      }
+      break;
+    }
+    if (old_key == key) {
+      break;
     }
     pos = ((pos + offset) & HASH_MASK);
     assert(offset < HASHTABLE_SIZE);
@@ -118,95 +73,79 @@ __forceinline__ __device__ IdType _FindPos(HashItem* hash_table, IdType key) {
   }
 }
 
-template <size_t BLOCK_SIZE, size_t TILE_SIZE>
-__global__ void sample_khop2(const IdType *indptr, IdType *indices,
+template <size_t GROUP_SIZE, size_t BLOCK_WARP, size_t TILE_SIZE>
+__global__ void sample_khop3(const IdType *indptr, IdType *indices,
                              const IdType *input, const size_t num_input,
                              const size_t fanout, IdType *tmp_src,
                              IdType *tmp_dst, curandState *random_states,
                              size_t num_random_states) {
-  assert(BLOCK_SIZE == blockDim.x);
-  const size_t block_start = TILE_SIZE * blockIdx.x;
-  const size_t block_end = TILE_SIZE * (blockIdx.x + 1);
-
-  size_t i = blockDim.x * blockIdx.x + threadIdx.x;
+  assert(GROUP_SIZE == blockDim.x);
+  assert(BLOCK_WARP == blockDim.y);
+  assert(fanout < HASHTABLE_SIZE);
+  IdType index = TILE_SIZE * blockIdx.x + threadIdx.y;
+  const IdType last_index = TILE_SIZE * (blockIdx.x + 1);
+  IdType i =  blockIdx.x * blockDim.y + threadIdx.y;
   assert(i < num_random_states);
-  curandState local_state = random_states[i];
 
-  assert(2 * fanout < HASHTABLE_SIZE);
-  HashItem hash_table[HASHTABLE_SIZE];
-  for (IdType j = 0; j < HASHTABLE_SIZE; ++j) {
-    hash_table[j].key = Constant::kEmptyKey;
+  __shared__ DeviceSet shared_set[BLOCK_WARP];
+  // use shared memory to let warp threads share the same random_state
+  __shared__ curandState shared_state[BLOCK_WARP];
+  __shared__ int shared_barrier_cnt[BLOCK_WARP];
+  shared_state[threadIdx.y] = random_states[i];
+
+  auto &d_set = shared_set[threadIdx.y];
+  curandState &local_state = shared_state[threadIdx.y];
+  int &barrier_cnt= shared_barrier_cnt[threadIdx.y];
+
+  for (int idx = threadIdx.x; idx < HASHTABLE_SIZE; idx += GROUP_SIZE) {
+    d_set.hashtable[idx] = HASH_EMPTY;
+  }
+  if (threadIdx.x == 0) {
+    d_set.count = 0;
+    barrier_cnt = 0;
   }
 
-  for (size_t index = threadIdx.x + block_start; index < block_end;
-       index += BLOCK_SIZE) {
-    if (index < num_input) {
-      const IdType rid = input[index];
-      const IdType off = indptr[rid];
-      const IdType len = indptr[rid + 1] - indptr[rid];
+  for (; index < last_index; index += BLOCK_WARP) {
+    if (index >= num_input) {
+      continue;
+    }
+    const IdType rid = input[index];
+    const IdType off = indptr[rid];
+    const IdType len = indptr[rid + 1] - indptr[rid];
 
-      if (len <= fanout) {
-        size_t j = 0;
-        for (; j < len; ++j) {
-          tmp_src[index * fanout + j] = rid;
-          tmp_dst[index * fanout + j] = indices[off + j];
-        }
+    if (len <= fanout) {
+      IdType j = threadIdx.x;
+      for (; j < len; j += GROUP_SIZE) {
+        tmp_src[index * fanout + j] = rid;
+        tmp_dst[index * fanout + j] = indices[off + j];
+      }
 
-        for (; j < fanout; ++j) {
-          tmp_src[index * fanout + j] = Constant::kEmptyKey;
-          tmp_dst[index * fanout + j] = Constant::kEmptyKey;
-        }
-      } else {
-        for (IdType j = 0; j < fanout; ++j) {
-          hash_table[j].key = j;
-          hash_table[j].value = j;
-        }
-        IdType *tmp_idx = (tmp_src + index * fanout);
-        for (IdType j = 0; j < fanout; ++j) {
-          IdType selected_j = curand(&local_state) % (len -j) + j;
-          assert(selected_j >= j && selected_j < len);
-          IdType tmp_idx_j = 0;
-          if (selected_j < fanout) {
-            tmp_idx_j = selected_j;
-          }
-          else {
-            IdType pos = _FindPos(hash_table, selected_j);
-            if (hash_table[pos].key == Constant::kEmptyKey) {
-              hash_table[pos].key = selected_j;
-              hash_table[pos].value = selected_j;
-            }
-            tmp_idx_j = pos;
-          }
-          // swap
-          IdType old_value = hash_table[tmp_idx_j].value;
-          hash_table[tmp_idx_j].value = hash_table[j].value;
-          hash_table[j].value = old_value;
-          tmp_idx[j] = tmp_idx_j;
-        }
-        for (IdType j =0; j < fanout; ++j) {
-          IdType tmp_idx_j = tmp_idx[j];
-          IdType indices_pos = hash_table[j].value;
-          assert(indices_pos < len);
-          tmp_dst[index * fanout + j] = indices[off + indices_pos];
-          tmp_src[index * fanout + j] = rid;
-          // reset the hash_table
-          if (tmp_idx_j >= fanout) {
-            hash_table[tmp_idx_j].key = Constant::kEmptyKey;
-            hash_table[tmp_idx_j].value = Constant::kEmptyKey;
-          }
-          hash_table[j].key = Constant::kEmptyKey;
-          hash_table[j].value = Constant::kEmptyKey;
-        }
+      for (; j < fanout; j += GROUP_SIZE) {
+        tmp_src[index * fanout + j] = Constant::kEmptyKey;
+        tmp_dst[index * fanout + j] = Constant::kEmptyKey;
+      }
+    } else {
+      IdType *mark_pos = (tmp_src + index * fanout);
+      while (d_set.count < fanout) {
+        IdType rand = (curand(&local_state) % len);
+        _SetInsert(&d_set, mark_pos, rand, fanout);
+      }
+      __syncwarp();
+      assert(d_set.count == fanout);
+      for (IdType j = threadIdx.x; j < fanout; j += GROUP_SIZE) {
+        IdType val = d_set.hashtable[mark_pos[j]];
+        // reset the hashtable values
+        d_set.hashtable[mark_pos[j]] = HASH_EMPTY;
+        tmp_src[index * fanout + j] = rid;
+        tmp_dst[index * fanout + j] = indices[off + val];
+      }
+      if (threadIdx.x == 0) {
+        d_set.count = 0;
       }
     }
   }
-
   random_states[i] = local_state;
 }
-
-#else
-#error SHOULD DEFINE MACRO ORIGIN_KHOP2 / KHOP2_REVERSION_NO_MODIFIED
-#endif
 
 template <size_t BLOCK_SIZE, size_t TILE_SIZE>
 __global__ void count_edge(IdType *edge_src, size_t *item_prefix,
@@ -294,7 +233,7 @@ __global__ void compact_edge(const IdType *tmp_src, const IdType *tmp_dst,
 
 }  // namespace
 
-void GPUSampleKHop2(const IdType *indptr, IdType *indices,
+void GPUSampleKHop3(const IdType *indptr, IdType *indices,
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,
@@ -318,15 +257,17 @@ void GPUSampleKHop2(const IdType *indptr, IdType *indices,
   LOG(DEBUG) << "GPUSample: cuda tmp_dst malloc "
              << ToReadableSize(num_input * fanout * sizeof(IdType));
 
-  Timer _kt;
-  sample_khop2<Constant::kCudaBlockSize, Constant::kCudaTileSize>
-      <<<grid, block, 0, cu_stream>>>(
+  static_assert(sizeof(unsigned long long) == 8, "");
+  const int GROUP_SIZE = 16;
+  const int BLOCK_WARP = 128 / GROUP_SIZE;
+  const int TILE_SIZE = BLOCK_WARP * 16;
+  const dim3 block_t(GROUP_SIZE, BLOCK_WARP);
+  const dim3 grid_t((num_input + TILE_SIZE - 1) / TILE_SIZE);
+  sample_khop3<GROUP_SIZE, BLOCK_WARP, TILE_SIZE> <<<grid_t, block_t, 0, cu_stream>>> (
           indptr, indices, input, num_input, fanout, tmp_src, tmp_dst,
           random_states->GetStates(), random_states->NumStates());
+
   sampler_device->StreamSync(ctx, stream);
-  double kernel_time = _kt.Passed();
-  LOG(DEBUG) << "sample_khop0 input=" << num_input
-             << " fanout=" << fanout << " " << kernel_time << "s";
   double sample_time = t0.Passed();
 
   Timer t1;
@@ -367,12 +308,7 @@ void GPUSampleKHop2(const IdType *indptr, IdType *indices,
   sampler_device->FreeWorkspace(ctx, tmp_src);
   sampler_device->FreeWorkspace(ctx, tmp_dst);
 
-  LOG(DEBUG) << "_debug sample time (key " << task_key << ") " << sample_time;
-  // LOG(DEBUG) << "kernel time tag " << kLogL3KHopSampleKernelTime << " val " << kernel_time;
   Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleCooTime, sample_time);
-  Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleKernelTime, kernel_time);
-  Profiler::Get().LogEpochAdd(task_key, kLogEpochSampleCooTime, sample_time);
-  Profiler::Get().LogEpochAdd(task_key, kLogEpochSampleKernelTime, kernel_time);
   Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleCountEdgeTime,
                              count_edge_time);
   Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleCompactEdgesTime,

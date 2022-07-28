@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -89,7 +89,7 @@ void DoGPUSample(TaskPtr task) {
     const size_t fanout = fanouts[i];
     const IdType *input = cur_input->CPtr<IdType>();
     const size_t num_input = cur_input->Shape()[0];
-    LOG(DEBUG) << "DoGPUSample: begin sample layer=" << i 
+    LOG(DEBUG) << "DoGPUSample: begin sample layer=" << i
                << " ctx=" << sampler_ctx
                << " num_input=" << num_input;
 
@@ -151,6 +151,11 @@ void DoGPUSample(TaskPtr task) {
       case kWeightedKHopHashDedup:
         GPUSampleWeightedKHopHashDedup(indptr, const_cast<IdType*>(indices), const_cast<float*>(prob_table), alias_table, input,
         num_input, fanout, out_src, out_dst, num_out, sampler_ctx, sample_stream, random_states, task->key);
+        break;
+      case kKHop3:
+        GPUSampleKHop3(indptr, const_cast<IdType*>(indices), input, num_input, fanout, out_src,
+                      out_dst, num_out, sampler_ctx, sample_stream,
+                      random_states, task->key);
         break;
       default:
         CHECK(0);
@@ -379,9 +384,9 @@ void DoGPUSampleDyCache(TaskPtr task, std::function<void(TaskPtr)> & nbr_cb) {
     //   const IdType *unique;
     //   hash_table->RefUnique(unique, &num_unique);
     //   task->input_nodes = Tensor::CopyBlob(
-    //       unique, DataType::kI32, {num_unique}, sampler_ctx, sampler_ctx, 
+    //       unique, DataType::kI32, {num_unique}, sampler_ctx, sampler_ctx,
     //       "cur_input_unique_cuda_" + std::to_string(task->key) + "_0");
-    // } else 
+    // } else
     // {
     //   hash_table->FillWithDupRevised(out_dst, num_samples,
     //                                 sample_stream);
@@ -409,7 +414,7 @@ void DoGPUSampleDyCache(TaskPtr task, std::function<void(TaskPtr)> & nbr_cb) {
         IdType n_ids_prefetch;
         hash_table->RefUnique(ids_prefetch, &n_ids_prefetch);
         task->input_nodes = Tensor::CopyBlob(
-            ids_prefetch, DataType::kI32, {n_ids_prefetch}, sampler_ctx, sampler_ctx, 
+            ids_prefetch, DataType::kI32, {n_ids_prefetch}, sampler_ctx, sampler_ctx,
             "cur_input_unique_cuda_" + std::to_string(task->key) + "_0");
         get_neighbour_time = tt.Passed();
         nbr_cb(task);
@@ -555,7 +560,7 @@ void DoGPUSampleAllNeighbour(TaskPtr task) {
   }
 
   task->input_nodes = Tensor::CopyBlob(
-      input, DataType::kI32, {num_input}, sampler_ctx, sampler_ctx, 
+      input, DataType::kI32, {num_input}, sampler_ctx, sampler_ctx,
       "cur_input_unique_cuda_" + std::to_string(task->key) + "_0");
 
   // Profiler::Get().LogStep(task->key, kLogL1NumNode, num_input);
@@ -932,7 +937,7 @@ void DoCacheFeatureCopy(TaskPtr task) {
 
   Timer t1;
 
-  IdType *cpu_output_miss_src_index = 
+  IdType *cpu_output_miss_src_index =
       cpu_device->AllocArray<IdType>(CPU(), num_output_miss);
   IdType *trainer_output_miss_dst_index =
       trainer_device->AllocArray<IdType>(trainer_ctx, num_output_miss);
@@ -1136,7 +1141,7 @@ void DoDynamicCacheFeatureCopy(TaskPtr task) {
   // 2. Extract the miss data
   Timer t2;
 
-  auto cpu_output_miss = Tensor::Empty(feat_type, {num_output_miss, feat_dim}, CPU(), ""); 
+  auto cpu_output_miss = Tensor::Empty(feat_type, {num_output_miss, feat_dim}, CPU(), "");
   cache_manager->ExtractMissData(cpu_output_miss->MutableData(),
                                  cpu_output_miss_src_index, num_output_miss);
 

@@ -86,6 +86,7 @@ GPURandomStates::GPURandomStates(SampleType sample_type,
           RunConfig::num_random_walk);
       break;
     case kKHop2:
+    case kKHop3:
       _num_states = PredictNumNodes(batch_size, fanout, fanout.size() - 1);
       break;
     case kWeightedKHopHashDedup:
