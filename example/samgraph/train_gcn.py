@@ -144,7 +144,6 @@ def run():
     epoch_sample_coo_times = [0 for i in range(num_epoch)]
     epoch_remap_times = [0 for i in range(num_epoch)]
     epoch_shuffle_times = [0 for i in range(num_epoch)]
-    epoch_sample_kernel_times = [0 for i in range(num_epoch)]
     epoch_copy_times = [0 for i in range(num_epoch)]
     epoch_convert_times = [0 for i in range(num_epoch)]
     epoch_train_times = [0 for i in range(num_epoch)]
@@ -166,7 +165,6 @@ def run():
     num_nodes     = [0 for i in range(num_epoch * num_step)]
     num_samples = [0 for i in range(num_epoch * num_step)]
     sample_coo_times = [0 for i in range(num_epoch * num_step)]
-    sample_kernel_times = [0 for i in range(num_epoch * num_step)]
     sample_node_thpts = [0 for i in range(num_epoch * num_step)]
     sample_compact_edge_times = [0 for i in range(num_epoch * num_step)]
 
@@ -220,7 +218,6 @@ def run():
             shuffle_time = sam.get_log_step_value(epoch, step, sam.kLogL2ShuffleTime)
             # copy_time = sam.get_log_step_value(epoch, step, sam.kLogL1CopyTime)
             sample_coo_time = sam.get_log_step_value(epoch, step, sam.kLogL3KHopSampleCooTime)
-            sample_kernel_time = sam.get_log_step_value(epoch, step, sam.kLogL3KHopSampleKernelTime)
             sample_compact_edge_time = sam.get_log_step_value(epoch, step, sam.kLogL3KHopSampleCompactEdgesTime) + \
                 sam.get_log_step_value(epoch, step, sam.kLogL3KHopSampleCountEdgeTime)
             convert_time = t2 - t1
@@ -246,15 +243,13 @@ def run():
             # train_times   [cur_step_key] = train_time
             # total_times   [cur_step_key] = total_time
             sample_coo_times[cur_step_key] = sample_coo_time
-            sample_kernel_times[cur_step_key] = sample_kernel_time
             sample_compact_edge_times[cur_step_key] = sample_compact_edge_time
 
             # num_samples.append(num_sample)
             num_nodes     [cur_step_key] = num_node
             num_samples[cur_step_key] = num_sample
 
-            # print(f"key {cur_step_key}, kernel time {sample_kernel_time}, tag {sam.kLogL3KHopSampleKernelTime}", flush=True)
-            sample_node_thpts[cur_step_key] = num_sample / sample_kernel_time
+            sample_node_thpts[cur_step_key] = num_sample / sample_coo_time
             # print('Epoch {:05d} | Step {:05d} | Nodes {:.0f} | Samples {:.0f} | Time {:.4f} secs | Sample Time {:.4f} secs | Copy Time {:.4f} secs |  Train Time {:.4f} secs (Convert Time {:.4f} secs) | Loss {:.4f} '.format(
             #     epoch, step, num_node, num_sample, total_time,
             #         sample_time, copy_time, train_time, convert_time, loss
@@ -282,7 +277,6 @@ def run():
         epoch_sample_coo_times[epoch] = sam.get_log_epoch_value(epoch, sam.kLogEpochSampleCooTime)
         epoch_remap_times[epoch] = sam.get_log_epoch_value(epoch, sam.kLogEpochIdRemapTime)
         epoch_shuffle_times[epoch] = sam.get_log_epoch_value(epoch, sam.kLogEpochShuffleTime)
-        epoch_sample_kernel_times[epoch] = sam.get_log_epoch_value(epoch, sam.kLogEpochSampleKernelTime)
         epoch_copy_times[epoch] = sam.get_log_epoch_value(
             epoch, sam.kLogEpochCopyTime)
         epoch_convert_times[epoch] = sam.get_log_epoch_value(
@@ -308,7 +302,6 @@ def run():
     test_result.append(('epoch_time:sample_coo_time', np.mean(epoch_sample_coo_times[1:])))
     test_result.append(('epoch_time:remap_time', np.mean(epoch_remap_times[1:])))
     test_result.append(('epoch_time:shuffle_time', np.mean(epoch_shuffle_times[1:])))
-    test_result.append(('epoch_time:sample_kernel_time', np.mean(epoch_sample_kernel_times[1:])))
     test_result.append(('epoch_time:copy_time',
                     np.mean(epoch_copy_times[1:])))
     test_result.append(('convert_time', np.mean(epoch_convert_times[1:])))
@@ -334,7 +327,6 @@ def run():
     test_result.append(('step_time:remap_time', np.mean(remap_times[num_step:])))
     test_result.append(('step_time:shuffle_time', np.mean(shuffle_times[num_step:])))
     test_result.append(('step_time:sample_coo_time', np.mean(sample_coo_times[num_step:])))
-    test_result.append(('step_time:sample_kernel_time', np.mean(sample_kernel_times[num_step:])))
     test_result.append(('step_time:sample_compact_edge_time', np.mean(sample_compact_edge_times[num_step:])))
     for k, v in test_result:
         print('test_result:{:}={:.4f}'.format(k, v))
