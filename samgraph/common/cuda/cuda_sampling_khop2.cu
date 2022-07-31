@@ -318,15 +318,11 @@ void GPUSampleKHop2(const IdType *indptr, IdType *indices,
   LOG(DEBUG) << "GPUSample: cuda tmp_dst malloc "
              << ToReadableSize(num_input * fanout * sizeof(IdType));
 
-  Timer _kt;
   sample_khop2<Constant::kCudaBlockSize, Constant::kCudaTileSize>
       <<<grid, block, 0, cu_stream>>>(
           indptr, indices, input, num_input, fanout, tmp_src, tmp_dst,
           random_states->GetStates(), random_states->NumStates());
   sampler_device->StreamSync(ctx, stream);
-  double kernel_time = _kt.Passed();
-  LOG(DEBUG) << "sample_khop0 input=" << num_input
-             << " fanout=" << fanout << " " << kernel_time << "s";
   double sample_time = t0.Passed();
 
   Timer t1;
@@ -368,11 +364,8 @@ void GPUSampleKHop2(const IdType *indptr, IdType *indices,
   sampler_device->FreeWorkspace(ctx, tmp_dst);
 
   LOG(DEBUG) << "_debug sample time (key " << task_key << ") " << sample_time;
-  // LOG(DEBUG) << "kernel time tag " << kLogL3KHopSampleKernelTime << " val " << kernel_time;
   Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleCooTime, sample_time);
-  Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleKernelTime, kernel_time);
   Profiler::Get().LogEpochAdd(task_key, kLogEpochSampleCooTime, sample_time);
-  Profiler::Get().LogEpochAdd(task_key, kLogEpochSampleKernelTime, kernel_time);
   Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleCountEdgeTime,
                              count_edge_time);
   Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleCompactEdgesTime,
