@@ -17,7 +17,10 @@
 
 #ifndef SAMGRAPH_DIST_GRAPH_H
 #define SAMGRAPH_DIST_GRAPH_H
+
 #include <memory>
+
+#include "../common.h"
 
 namespace samgraph {
 namespace common {
@@ -25,12 +28,11 @@ namespace dist {
 
 class DeviceDistGraph {
  public:
-  DeviceDistGraph(const IdType **part_indptr, const IdType **part_indices,
-      const IdType *part_node_offset, const IdType num_partition,
-      const IdType num_nodes)
+  DeviceDistGraph(IdType **part_indptr, IdType **part_indices,
+      IdType num_partition,
+      IdType num_node)
     : _part_indptr(part_indptr), _part_indices(part_indices),
-      _part_node_offset(part_node_offset), _num_partition(num_partition),
-      _num_nodes(num_nodes) {};
+      _num_partition(num_partition), _num_node(num_node) {};
 
   inline __device__ IdType NumEdge(IdType node_id) {
     IdType part_id, real_id;
@@ -48,7 +50,7 @@ class DeviceDistGraph {
   }
 
  private:
-  inline __device__ void DeviceDistGraph::_GetRealPartId(IdType node_id,
+  inline __device__ void _GetRealPartId(IdType node_id,
       IdType *part_id, IdType *real_id) {
     *part_id = (node_id % _num_partition);
     *real_id = (node_id / _num_partition);
@@ -56,19 +58,18 @@ class DeviceDistGraph {
 
   IdType **_part_indptr;
   IdType **_part_indices;
-  IdType *_part_node_offset;
   IdType _num_partition;
-  IdType _num_nodes;
+  IdType _num_node;
 };
 
 constexpr int kMaxDevice = 32;
 
 class DistGraph {
  public:
-  DatasetPartition();
-  DistGraph DeviceHandle() const;
+  void DatasetLoad(Dataset *dataset, Context sampler_ctx);
+  DeviceDistGraph DeviceHandle() const;
 
-  static void Create(int num_worker);
+  static void Create(std::vector<Context> ctxes);
   static void Release(DistGraph *dist_graph);
   static std::shared_ptr<DistGraph> Get() {
     CHECK(_inst != nullptr) << "The static instance is not be initialized";
@@ -83,10 +84,16 @@ class DistGraph {
 
   DistGraph(std::vector<Context> ctxes);
   void _Barrier();
+  void _DatasetPartition(const Dataset *dataset);
 
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
   std::vector<Context> _ctxes;
+  IdType _num_node;
+
+  IdType **_d_part_indptr;
+  IdType **_d_part_indices;
+
   struct SharedData {
     pthread_barrier_t barrier;
     cudaIpcMemHandle_t mem_handle[kMaxDevice];

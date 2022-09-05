@@ -1,9 +1,16 @@
+#include "dist_graph.h"
+
+#include <sys/mman.h>
+
+#include <cstring>
+
+#include "../device.h"
 
 namespace samgraph {
 namespace common {
 namespace dist {
 
-void DistGraph::DatasetPartition(const Dataset *dataset) {
+void DistGraph::_DatasetPartition(const Dataset *dataset) {
   auto indptr_data = dataset->indptr->CPtr<IdType>();
   auto indices_data = dataset->indices->CPtr<IdType>();
   IdType num_node = dataset->num_node;
@@ -46,38 +53,38 @@ void DistGraph::DatasetPartition(const Dataset *dataset) {
   }
 
   for (IdType i = 0; i < num_device; ++i) {
-    _part_indptr[i] = TensorPtr::CopyTo(_part_indptr[i], _ctxes[i],
+    _part_indptr[i] = Tensor::CopyTo(_part_indptr[i], _ctxes[i],
         nullptr, Constant::kAllocNoScale);
-    _part_indices[i] = TensorPtr::CopyTo(_part_indices[i], _ctxes[i],
+    _part_indices[i] = Tensor::CopyTo(_part_indices[i], _ctxes[i],
         nullptr, Constant::kAllocNoScale);
   }
 }
 
-void DistGraph::DatasetCreate(Dataset *dataset, Context sampler_ctx) {
+void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
   if (sampler_ctx == _ctxes.front()) {
-    DatasetPartition(dataset, _ctxes);
+    _DatasetPartition(dataset);
   }
-  auto DataIpcShare = [&_ctxes, &_shared_data](
-      std::vector<TensorPtr> &part_data,
+
+  auto DataIpcShare = [&](std::vector<TensorPtr> &part_data,
       std::vector<size_t> part_size_vec,
       std::string name) {
     if (sampler_ctx == _ctxes.front()) {
       int num_worker = _ctxes.size();
       for (int i = 0; i < num_worker; ++i) {
         auto ctx = _ctxes[i];
-        auto shared_data = _part_data[i]->CPtr<IdType>();
+        auto shared_data = part_data[i]->CPtr<IdType>();
         auto gpu_device = Device::Get(ctx);
         gpu_device->SetDevice(ctx);
         cudaIpcMemHandle_t mem_handle = _shared_data->mem_handle[ctx.device_id];
-        CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, shared_data));
+        CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
       }
       _Barrier();
     } else {
       _Barrier();
-      int num_worker = ctxes.size();
-      CHECK(_part_data.size() == 0)
+      int num_worker = _ctxes.size();
+      CHECK(part_data.size() == 0)
         << "_part_indptr need be null in other processes.";
-      _part_data.resize(num_worker, nullptr);
+      part_data.resize(num_worker, nullptr);
       for (int i = 0; i < num_worker; ++i) {
         auto ctx = _ctxes[i];
         auto gpu_device = Device::Get(ctx);
@@ -86,29 +93,46 @@ void DistGraph::DatasetCreate(Dataset *dataset, Context sampler_ctx) {
         void *ptr;
         CUDA_CALL(cudaIpcOpenMemHandle(
               &ptr, mem_handle, cudaIpcMemLazyEnablePeerAccess));
-        _part_data[i] = Tensor::FromBlob(ptr, kI32, {part_size_vec[i]}, ctx, 
+        part_data[i] = Tensor::FromBlob(ptr, kI32, {part_size_vec[i]}, ctx,
             name + " in device:" + std::to_string(ctx.device_id));
       }
     }
-  }
-  std::vector<size_t> part_size_vec(_ctxes.size());
+  };
+
   IdType num_node = dataset->num_node;
   IdType num_device = _ctxes.size();
+  std::vector<size_t> part_size_vec(num_device);
   for (size_t i = 0; i < num_device; ++i) {
-    IdType part_size_vec[i] = (num_node / num_device +
+    part_size_vec[i] = (num_node / num_device +
         (i < num_node % num_device? 1 : 0) + 1);
   }
-  DataIpcShare(_part_indptr, part_size_vec);
+  DataIpcShare(_part_indptr, part_size_vec, "dataset part indptr");
 
   part_size_vec.clear();
-  part_size_vec.resize(_ctxes.size(), 0);
+  part_size_vec.resize(num_device, 0);
   auto indptr_data = dataset->indptr->CPtr<IdType>();
   for (IdType i = 0; i < num_node; ++i) {
     IdType num_edge = indptr_data[i + 1] - indptr_data[i];
     IdType part_id = (i % num_device);
     part_size_vec[part_id] += num_edge;
   }
-  DataIpcShare(_part_indices, part_size_vec);
+  DataIpcShare(_part_indices, part_size_vec, "dataset part indices");
+
+  CUDA_CALL(cudaMallocManaged(
+        (void**)&_d_part_indptr, num_device * sizeof(IdType*)));
+  CUDA_CALL(cudaMallocManaged(
+        (void**)&_d_part_indices, num_device * sizeof(IdType*)));
+  for (IdType i = 0; i < num_device; ++i) {
+    _d_part_indptr[i] = _part_indptr[i]->Ptr<IdType>();
+    _d_part_indices[i] = _part_indices[i]->Ptr<IdType>();
+  }
+
+  _num_node = dataset->num_node;
+}
+
+DeviceDistGraph DistGraph::DeviceHandle() const {
+  return DeviceDistGraph(
+      _d_part_indptr, _d_part_indices, _ctxes.size(), _num_node);
 }
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
@@ -130,6 +154,8 @@ void DistGraph::_Barrier() {
 
 void DistGraph::Release(DistGraph *dist_graph) {
   // XXX: release ipc memory with cudaIpcCloseMemHandle?
+  CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indptr));
+  CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indices));
   pthread_barrier_destroy(&dist_graph->_shared_data->barrier);
   munmap(dist_graph->_shared_data, sizeof(SharedData));
 }
