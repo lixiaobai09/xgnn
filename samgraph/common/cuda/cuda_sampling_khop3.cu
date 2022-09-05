@@ -74,7 +74,7 @@ __forceinline__ __device__ void _SetInsert(DeviceSet *d_set,
 }
 
 template <size_t GROUP_SIZE, size_t BLOCK_WARP, size_t TILE_SIZE>
-__global__ void sample_khop3(const IdType *indptr, IdType *indices,
+__global__ void sample_khop3(DeviceDistGraph dist_graph,
                              const IdType *input, const size_t num_input,
                              const size_t fanout, IdType *tmp_src,
                              IdType *tmp_dst, curandState *random_states,
@@ -110,14 +110,14 @@ __global__ void sample_khop3(const IdType *indptr, IdType *indices,
       continue;
     }
     const IdType rid = input[index];
-    const IdType off = indptr[rid];
-    const IdType len = indptr[rid + 1] - indptr[rid];
+    const IdType *edges = dist_graph[rid];
+    const IdType len = dist_graph.NumEdge(rid);
 
     if (len <= fanout) {
       IdType j = threadIdx.x;
       for (; j < len; j += GROUP_SIZE) {
         tmp_src[index * fanout + j] = rid;
-        tmp_dst[index * fanout + j] = indices[off + j];
+        tmp_dst[index * fanout + j] = edges[j];
       }
 
       for (; j < fanout; j += GROUP_SIZE) {
@@ -137,7 +137,7 @@ __global__ void sample_khop3(const IdType *indptr, IdType *indices,
         // reset the hashtable values
         d_set.hashtable[mark_pos[j]] = HASH_EMPTY;
         tmp_src[index * fanout + j] = rid;
-        tmp_dst[index * fanout + j] = indices[off + val];
+        tmp_dst[index * fanout + j] = edges[val];
       }
       if (threadIdx.x == 0) {
         d_set.count = 0;
@@ -233,7 +233,7 @@ __global__ void compact_edge(const IdType *tmp_src, const IdType *tmp_dst,
 
 }  // namespace
 
-void GPUSampleKHop3(const IdType *indptr, IdType *indices,
+void GPUSampleKHop3(DeviceDistGraph dist_graph,
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,
@@ -264,7 +264,7 @@ void GPUSampleKHop3(const IdType *indptr, IdType *indices,
   const dim3 block_t(GROUP_SIZE, BLOCK_WARP);
   const dim3 grid_t((num_input + TILE_SIZE - 1) / TILE_SIZE);
   sample_khop3<GROUP_SIZE, BLOCK_WARP, TILE_SIZE> <<<grid_t, block_t, 0, cu_stream>>> (
-          indptr, indices, input, num_input, fanout, tmp_src, tmp_dst,
+          dist_graph, input, num_input, fanout, tmp_src, tmp_dst,
           random_states->GetStates(), random_states->NumStates());
 
   sampler_device->StreamSync(ctx, stream);

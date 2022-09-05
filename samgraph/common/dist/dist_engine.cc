@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -31,6 +31,7 @@
 #include "../constant.h"
 #include "../cpu/cpu_engine.h"
 #include "../cuda/cuda_common.h"
+#include "../cuda/dist_graph.h"
 #include "../device.h"
 #include "../logging.h"
 #include "../profiler.h"
@@ -192,7 +193,7 @@ void DistEngine::SampleDataCopy(Context sampler_ctx, StreamHandle stream) {
   _dataset->train_set = Tensor::CopyTo(_dataset->train_set, CPU(), stream);
   _dataset->valid_set = Tensor::CopyTo(_dataset->valid_set, CPU(), stream);
   _dataset->test_set = Tensor::CopyTo(_dataset->test_set, CPU(), stream);
-  if (sampler_ctx.device_type == kGPU) {
+  if ((sampler_ctx.device_type == kGPU) && (RunConfig::run_arch != kArch6)) {
     _dataset->indptr = Tensor::CopyTo(_dataset->indptr, sampler_ctx, stream, Constant::kAllocNoScale);
     _dataset->indices = Tensor::CopyTo(_dataset->indices, sampler_ctx, stream, Constant::kAllocNoScale);
     if (RunConfig::sample_type == kWeightedKHop || RunConfig::sample_type == kWeightedKHopHashDedup) {
@@ -201,6 +202,8 @@ void DistEngine::SampleDataCopy(Context sampler_ctx, StreamHandle stream) {
     } else if (RunConfig::sample_type == kWeightedKHopPrefix) {
       _dataset->prob_prefix_table = Tensor::CopyTo(_dataset->prob_prefix_table, sampler_ctx, stream, Constant::kAllocNoScale);
     }
+  } else if (RunConfig::run_arch == kArch6) {
+    cuda::DistGraph::Get()->DatasetLoad(_dataset, sampler_ctx);
   }
   LOG(DEBUG) << "SampleDataCopy finished!";
 }
@@ -267,10 +270,10 @@ void DistEngine::UMSampleCacheTableInit() {
   size_t num_nodes = _dataset->num_node;
   auto nodes = static_cast<const IdType*>(_dataset->ranking_nodes->Data());
   size_t num_cached_nodes = num_nodes * RunConfig::cache_percentage;
-  
+
   IdType* tmp_cpu_hashtb = static_cast<IdType*>(Device::Get(CPU())->AllocDataSpace(
       CPU(), sizeof(IdType) * num_nodes));
-  
+
   // fill cpu hash table with cached nodes
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
   for (size_t i = 0; i < num_nodes; i++) {
@@ -507,7 +510,7 @@ void DistEngine::UMSampleInit(int num_workers) {
   }
 
   _graph_pool = nullptr;
-  
+
   std::stringstream ss;
   for (int i = 0; i < RunConfig::num_sample_worker; i++)
     ss << RunConfig::unified_memory_ctxes[i] << " ";

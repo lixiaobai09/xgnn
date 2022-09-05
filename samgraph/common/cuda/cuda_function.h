@@ -20,6 +20,7 @@
 
 #include "../common.h"
 
+#include "dist_graph.h"
 #include "cuda_frequency_hashmap.h"
 #include "cuda_hashtable.h"
 #include "cuda_random_states.h"
@@ -80,7 +81,12 @@ void GPUSampleWeightedKHopHashDedup(const IdType *indptr, const IdType *indices,
                            StreamHandle stream, GPURandomStates *random_states,
                            uint64_t task_key);
 
-void GPUSampleKHop3(const IdType *indptr, IdType *indices,
+// void GPUSampleKHop3(const IdType *indptr, IdType *indices,
+//                     const IdType *input, const size_t num_input,
+//                     const size_t fanout, IdType *out_src, IdType *out_dst,
+//                     size_t *num_out, Context ctx, StreamHandle stream,
+//                     GPURandomStates *random_states, uint64_t task_key);
+void GPUSampleKHop3(DeviceDistGraph dist_graph,
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,

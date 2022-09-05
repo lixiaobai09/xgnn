@@ -27,6 +27,7 @@
 #include "dist_engine.h"
 #include "../cuda/cuda_hashtable.h"
 #include "../cuda/cuda_function.h"
+#include "../cuda/dist_graph.h"
 
 namespace samgraph {
 namespace common {
@@ -185,9 +186,10 @@ void DoGPUSample(TaskPtr task) {
             num_input, fanout, out_src, out_dst, num_out, sampler_ctx, sample_stream, random_states, task->key);
         break;
       case kKHop3:
-        GPUSampleKHop3(indptr, const_cast<IdType*>(indices), input, num_input, fanout, out_src,
-                      out_dst, num_out, sampler_ctx, sample_stream,
-                      random_states, task->key);
+        GPUSampleKHop3(cuda::DistGraph::Get()->DeviceHandle(),
+            input, num_input, fanout, out_src,
+            out_dst, num_out, sampler_ctx, sample_stream,
+            random_states, task->key);
         break;
       default:
         CHECK(0);

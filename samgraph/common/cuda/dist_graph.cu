@@ -8,7 +8,7 @@
 
 namespace samgraph {
 namespace common {
-namespace dist {
+namespace cuda {
 
 void DistGraph::_DatasetPartition(const Dataset *dataset) {
   auto indptr_data = dataset->indptr->CPtr<IdType>();
@@ -166,6 +166,6 @@ void DistGraph::Create(std::vector<Context> ctxes) {
       new DistGraph(ctxes), Release);
 }
 
-}  // namespace dist
+}  // namespace cuda
 }  // namespace common
 }  // namespace samgraph

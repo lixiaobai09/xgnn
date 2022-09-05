@@ -19,12 +19,13 @@
 #define SAMGRAPH_DIST_GRAPH_H
 
 #include <memory>
+#include <cuda_runtime_api.h>
 
 #include "../common.h"
 
 namespace samgraph {
 namespace common {
-namespace dist {
+namespace cuda {
 
 class DeviceDistGraph {
  public:
@@ -103,7 +104,7 @@ class DistGraph {
   static std::shared_ptr<DistGraph> _inst;
 };
 
-} // dist
+} // cuda
 } // common
 } // namespace samgraph
 

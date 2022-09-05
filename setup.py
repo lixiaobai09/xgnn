@@ -172,6 +172,7 @@ setup(
                 'samgraph/common/cuda/cuda_shuffler.cc',
                 'samgraph/common/cuda/pre_sampler.cc',
                 'samgraph/common/cuda/um_pre_sampler.cc',
+                'samgraph/common/cuda/dist_graph.cu',
                 'samgraph/common/dist/dist_engine.cc',
                 'samgraph/common/dist/dist_loops.cc',
                 'samgraph/common/dist/dist_loops_arch5.cc',
@@ -183,7 +184,6 @@ setup(
                 'samgraph/common/dist/dist_shuffler.cc',
                 'samgraph/common/dist/dist_shuffler_aligned.cc',
                 'samgraph/common/dist/dist_um_sampler.cc',
-                'samgraph/common/dist/dist_graph.cu',
             ],
             include_dirs=[
                 # os.path.join(here, '3rdparty/cub'),

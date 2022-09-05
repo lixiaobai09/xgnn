@@ -29,7 +29,6 @@
 #include <sys/wait.h>
 #include <regex>
 
-#include "./dist/dist_engine.h"
 #include "common.h"
 #include "constant.h"
 #include "engine.h"
@@ -38,6 +37,8 @@
 #include "run_config.h"
 #include "timer.h"
 #include "cuda/cuda_engine.h"
+#include "cuda/dist_graph.h"
+#include "dist/dist_engine.h"
 
 namespace samgraph {
 namespace common {
@@ -233,7 +234,7 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
       RunConfig::unified_memory_ctxes.push_back(CPU());
     }
     LOG(INFO) << "unified_memory_ctxes : "
-              << std::accumulate(RunConfig::unified_memory_ctxes.begin(), RunConfig::unified_memory_ctxes.end(), 
+              << std::accumulate(RunConfig::unified_memory_ctxes.begin(), RunConfig::unified_memory_ctxes.end(),
                   std::string{""},
                 [](std::string init, const Context& first) {
                   std::stringstream ss;
@@ -258,7 +259,7 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
     }
     for (auto ctx : RC::unified_memory_ctxes) {
       if (ctx.device_type != DeviceType::kGPU && ctx.device_type != DeviceType::kGPU_UM) {
-        LOG(FATAL) << "UM sampler ctx should be GPU, but find " << ctx; 
+        LOG(FATAL) << "UM sampler ctx should be GPU, but find " << ctx;
       }
     }
   } else if (RC::run_arch == RunArch::kArch3) {
@@ -458,6 +459,14 @@ void samgraph_data_init() {
   CHECK(RunConfig::is_configured);
   Engine::Create();
   Engine::Get()->Init();
+
+  if (RunConfig::run_arch == kArch6) {
+    std::vector<Context> ctxes(RunConfig::num_worker);
+    for (int i = 0; i < RunConfig::num_worker; ++i) {
+      ctxes[i] = Context{kGPU, i};
+    }
+    cuda::DistGraph::Create(ctxes);
+  }
 
   LOG(INFO) << "SamGraph data has been initialized successfully";
 }

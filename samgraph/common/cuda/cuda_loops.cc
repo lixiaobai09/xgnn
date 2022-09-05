@@ -152,10 +152,10 @@ void DoGPUSample(TaskPtr task) {
         GPUSampleWeightedKHopHashDedup(indptr, const_cast<IdType*>(indices), const_cast<float*>(prob_table), alias_table, input,
         num_input, fanout, out_src, out_dst, num_out, sampler_ctx, sample_stream, random_states, task->key);
         break;
-      case kKHop3:
-        GPUSampleKHop3(indptr, const_cast<IdType*>(indices), input, num_input, fanout, out_src,
-                      out_dst, num_out, sampler_ctx, sample_stream,
-                      random_states, task->key);
+      // case kKHop3:
+      //   GPUSampleKHop3(indptr, const_cast<IdType*>(indices), input, num_input, fanout, out_src,
+      //                 out_dst, num_out, sampler_ctx, sample_stream,
+      //                 random_states, task->key);
         break;
       default:
         CHECK(0);
