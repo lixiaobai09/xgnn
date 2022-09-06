@@ -90,19 +90,16 @@ __global__ void sample_khop3(DeviceDistGraph dist_graph,
   __shared__ DeviceSet shared_set[BLOCK_WARP];
   // use shared memory to let warp threads share the same random_state
   __shared__ curandState shared_state[BLOCK_WARP];
-  __shared__ int shared_barrier_cnt[BLOCK_WARP];
   shared_state[threadIdx.y] = random_states[i];
 
   auto &d_set = shared_set[threadIdx.y];
   curandState &local_state = shared_state[threadIdx.y];
-  int &barrier_cnt= shared_barrier_cnt[threadIdx.y];
 
   for (int idx = threadIdx.x; idx < HASHTABLE_SIZE; idx += GROUP_SIZE) {
     d_set.hashtable[idx] = HASH_EMPTY;
   }
   if (threadIdx.x == 0) {
     d_set.count = 0;
-    barrier_cnt = 0;
   }
 
   for (; index < last_index; index += BLOCK_WARP) {
