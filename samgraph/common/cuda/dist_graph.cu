@@ -10,6 +10,8 @@ namespace samgraph {
 namespace common {
 namespace cuda {
 
+std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
+
 void DistGraph::_DatasetPartition(const Dataset *dataset) {
   auto indptr_data = dataset->indptr->CPtr<IdType>();
   auto indices_data = dataset->indices->CPtr<IdType>();

@@ -122,6 +122,7 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
       CHECK(configs.count("num_worker"));
       RC::num_sample_worker = std::stoull(configs["num_worker"]);
       RC::num_train_worker = std::stoull(configs["num_worker"]);
+      RC::num_worker = std::stoull(configs["num_worker"]);
       break;
     case kArch7:
       CHECK(configs.count("worker_id"));
