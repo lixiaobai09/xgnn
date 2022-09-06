@@ -44,7 +44,7 @@ void DistGraph::_DatasetPartition(const Dataset *dataset) {
     std::memcpy(
         &_part_indices[part_id]->Ptr<IdType>()[part_edge_count[part_id]],
         &indices_data[indptr_data[i]],
-        num_edge);
+        num_edge * sizeof(IdType));
     // XXX: use omp to speedup?
     part_edge_count[part_id] += num_edge;
   }
@@ -77,7 +77,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
         auto shared_data = part_data[i]->CPtr<IdType>();
         auto gpu_device = Device::Get(ctx);
         gpu_device->SetDevice(ctx);
-        cudaIpcMemHandle_t mem_handle = _shared_data->mem_handle[ctx.device_id];
+        cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
         CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
       }
       _Barrier();
@@ -91,7 +91,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
         auto ctx = _ctxes[i];
         auto gpu_device = Device::Get(ctx);
         gpu_device->SetDevice(ctx);
-        cudaIpcMemHandle_t mem_handle = _shared_data->mem_handle[ctx.device_id];
+        cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
         void *ptr;
         CUDA_CALL(cudaIpcOpenMemHandle(
               &ptr, mem_handle, cudaIpcMemLazyEnablePeerAccess));
