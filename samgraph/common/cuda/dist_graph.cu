@@ -67,6 +67,23 @@ void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
     _DatasetPartition(dataset);
   }
 
+  // open P2P
+  for (IdType i = 0; i < _ctxes.size(); ++i) {
+    int device_id = _ctxes[i].device_id;
+    CUDA_CALL(cudaSetDevice(device_id));
+    for (IdType j = 0; j < _ctxes.size(); ++j) {
+      if (j == i) {
+        continue;
+      }
+      int peer_device_id = _ctxes[j].device_id;
+      int flag;
+      CUDA_CALL(cudaDeviceCanAccessPeer(&flag, device_id, peer_device_id));
+      CHECK_EQ(flag, 1);
+      CUDA_CALL(cudaDeviceEnablePeerAccess(peer_device_id, 0));
+    }
+  }
+  Device::Get(sampler_ctx)->SetDevice(sampler_ctx);
+
   auto DataIpcShare = [&](std::vector<TensorPtr> &part_data,
       std::vector<size_t> part_size_vec,
       std::string name) {
@@ -74,12 +91,14 @@ void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
       int num_worker = _ctxes.size();
       for (int i = 0; i < num_worker; ++i) {
         auto ctx = _ctxes[i];
+        CHECK(ctx == part_data[i]->Ctx());
         auto shared_data = part_data[i]->CPtr<IdType>();
         auto gpu_device = Device::Get(ctx);
         gpu_device->SetDevice(ctx);
         cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
         CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
       }
+
       _Barrier();
     } else {
       _Barrier();
@@ -89,8 +108,6 @@ void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
       part_data.resize(num_worker, nullptr);
       for (int i = 0; i < num_worker; ++i) {
         auto ctx = _ctxes[i];
-        auto gpu_device = Device::Get(ctx);
-        gpu_device->SetDevice(ctx);
         cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
         void *ptr;
         CUDA_CALL(cudaIpcOpenMemHandle(
@@ -99,6 +116,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
             name + " in device:" + std::to_string(ctx.device_id));
       }
     }
+    Device::Get(sampler_ctx)->SetDevice(sampler_ctx);
   };
 
   IdType num_node = dataset->num_node;
