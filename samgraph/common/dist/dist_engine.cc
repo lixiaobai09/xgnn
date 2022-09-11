@@ -189,7 +189,8 @@ void DistEngine::Init() {
   LOG(DEBUG) << "Finished pre-initialization";
 }
 
-void DistEngine::SampleDataCopy(Context sampler_ctx, StreamHandle stream) {
+void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
+    StreamHandle stream) {
   _dataset->train_set = Tensor::CopyTo(_dataset->train_set, CPU(), stream);
   _dataset->valid_set = Tensor::CopyTo(_dataset->valid_set, CPU(), stream);
   _dataset->test_set = Tensor::CopyTo(_dataset->test_set, CPU(), stream);
@@ -203,7 +204,7 @@ void DistEngine::SampleDataCopy(Context sampler_ctx, StreamHandle stream) {
       _dataset->prob_prefix_table = Tensor::CopyTo(_dataset->prob_prefix_table, sampler_ctx, stream, Constant::kAllocNoScale);
     }
   } else if (RunConfig::run_arch == kArch6) {
-    cuda::DistGraph::Get()->DatasetLoad(_dataset, sampler_ctx);
+    cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx);
   }
   LOG(DEBUG) << "SampleDataCopy finished!";
 }
@@ -329,7 +330,7 @@ void DistEngine::SampleInit(int worker_id, Context ctx) {
   LOG_MEM_USAGE(WARNING, "after create sampler stream", _sampler_ctx);
 
   Timer t_load_graph_ds_copy;
-  SampleDataCopy(_sampler_ctx, _sample_stream);
+  SampleDataCopy(worker_id, _sampler_ctx, _sample_stream);
   double time_load_graph_ds_copy = t_load_graph_ds_copy.Passed();
   LOG_MEM_USAGE(WARNING, "after sample data copy", _sampler_ctx);
 

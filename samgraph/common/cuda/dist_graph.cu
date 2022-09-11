@@ -12,111 +12,86 @@ namespace cuda {
 
 std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
 
-void DistGraph::_DatasetPartition(const Dataset *dataset) {
+void DistGraph::_DatasetPartition(const Dataset *dataset, int sampler_id) {
   auto indptr_data = dataset->indptr->CPtr<IdType>();
   auto indices_data = dataset->indices->CPtr<IdType>();
+  auto ctx = _ctxes[sampler_id];
   IdType num_node = dataset->num_node;
   IdType num_device = _ctxes.size();
-  std::vector<IdType> part_edge_count(num_device, 0);
-  for (IdType i = 0; i < num_node; ++i) {
+  IdType part_edge_count = 0;
+  for (IdType i = sampler_id; i < num_node; i += num_device) {
     IdType num_edge = (indptr_data[i + 1] - indptr_data[i]);
-    IdType part_id = (i % num_device);
-    part_edge_count[part_id] += num_edge;
+    part_edge_count += num_edge;
   }
   _part_indptr.clear();
   _part_indptr.resize(num_device, nullptr);
   _part_indices.clear();
   _part_indices.resize(num_device, nullptr);
-  for (IdType i = 0; i < num_device; ++i) {
-    IdType indptr_size = (num_node / num_device +
-        (i < num_node % num_device? 1 : 0) + 1);
-    _part_indptr[i] = Tensor::Empty(kI32, {indptr_size}, CPU(),
-        "indptr in device:" + std::to_string(_ctxes[i].device_id));
-    _part_indices[i] = Tensor::Empty(kI32, {part_edge_count[i]}, CPU(),
-        "indices in device:" + std::to_string(_ctxes[i].device_id));
-    part_edge_count[i] = 0;
-  }
-  for (IdType i = 0; i < num_node; ++i) {
+
+  IdType indptr_size = (num_node / num_device +
+      (sampler_id < num_node % num_device? 1 : 0) + 1);
+  _part_indptr[sampler_id] = Tensor::Empty(kI32, {indptr_size}, CPU(),
+      "indptr in device:" + std::to_string(ctx.device_id));
+  _part_indices[sampler_id] = Tensor::Empty(kI32, {part_edge_count}, CPU(),
+      "indices in device:" + std::to_string(ctx.device_id));
+  part_edge_count = 0;
+
+  for (IdType i = sampler_id; i < num_node; i += num_device) {
     IdType num_edge = (indptr_data[i + 1] - indptr_data[i]);
-    IdType part_id = (i % num_device);
+    IdType part_id = sampler_id;
     IdType real_id = (i / num_device);
-    _part_indptr[part_id]->Ptr<IdType>()[real_id] = part_edge_count[part_id];
+    _part_indptr[part_id]->Ptr<IdType>()[real_id] = part_edge_count;
     std::memcpy(
-        &_part_indices[part_id]->Ptr<IdType>()[part_edge_count[part_id]],
+        &_part_indices[part_id]->Ptr<IdType>()[part_edge_count],
         &indices_data[indptr_data[i]],
         num_edge * sizeof(IdType));
-    // XXX: use omp to speedup?
-    part_edge_count[part_id] += num_edge;
+    part_edge_count += num_edge;
   }
-  for (IdType i = 0; i < num_device; ++i) {
-    IdType last_indptr = (num_node / num_device +
-        (i < num_node % num_device? 1 : 0));
-    _part_indptr[i]->Ptr<IdType>()[last_indptr] = part_edge_count[i];
-  }
+  IdType last_indptr = (num_node / num_device +
+      (sampler_id < num_node % num_device? 1 : 0));
+  _part_indptr[sampler_id]->Ptr<IdType>()[last_indptr] = part_edge_count;
 
-  for (IdType i = 0; i < num_device; ++i) {
-    _part_indptr[i] = Tensor::CopyTo(_part_indptr[i], _ctxes[i],
-        nullptr, Constant::kAllocNoScale);
-    _part_indices[i] = Tensor::CopyTo(_part_indices[i], _ctxes[i],
-        nullptr, Constant::kAllocNoScale);
-  }
+  _part_indptr[sampler_id] = Tensor::CopyTo(_part_indptr[sampler_id], ctx,
+      nullptr, Constant::kAllocNoScale);
+  _part_indices[sampler_id] = Tensor::CopyTo(_part_indices[sampler_id], ctx,
+      nullptr, Constant::kAllocNoScale);
 }
 
-void DistGraph::DatasetLoad(Dataset *dataset, Context sampler_ctx) {
-  if (sampler_ctx == _ctxes.front()) {
-    _DatasetPartition(dataset);
-  }
-
-  // open P2P
-  for (IdType i = 0; i < _ctxes.size(); ++i) {
-    int device_id = _ctxes[i].device_id;
-    CUDA_CALL(cudaSetDevice(device_id));
-    for (IdType j = 0; j < _ctxes.size(); ++j) {
-      if (j == i) {
-        continue;
-      }
-      int peer_device_id = _ctxes[j].device_id;
-      int flag;
-      CUDA_CALL(cudaDeviceCanAccessPeer(&flag, device_id, peer_device_id));
-      CHECK_EQ(flag, 1);
-      CUDA_CALL(cudaDeviceEnablePeerAccess(peer_device_id, 0));
-    }
-  }
-  Device::Get(sampler_ctx)->SetDevice(sampler_ctx);
+void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
+    Context sampler_ctx) {
+  _DatasetPartition(dataset, sampler_id);
 
   auto DataIpcShare = [&](std::vector<TensorPtr> &part_data,
       std::vector<size_t> part_size_vec,
       std::string name) {
-    if (sampler_ctx == _ctxes.front()) {
-      int num_worker = _ctxes.size();
-      for (int i = 0; i < num_worker; ++i) {
-        auto ctx = _ctxes[i];
-        CHECK(ctx == part_data[i]->Ctx());
-        auto shared_data = part_data[i]->CPtr<IdType>();
-        auto gpu_device = Device::Get(ctx);
-        gpu_device->SetDevice(ctx);
-        cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
-        CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
-      }
 
-      _Barrier();
-    } else {
-      _Barrier();
-      int num_worker = _ctxes.size();
-      CHECK(part_data.size() == 0)
-        << "_part_indptr need be null in other processes.";
-      part_data.resize(num_worker, nullptr);
-      for (int i = 0; i < num_worker; ++i) {
-        auto ctx = _ctxes[i];
-        cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
-        void *ptr;
-        CUDA_CALL(cudaIpcOpenMemHandle(
-              &ptr, mem_handle, cudaIpcMemLazyEnablePeerAccess));
-        part_data[i] = Tensor::FromBlob(ptr, kI32, {part_size_vec[i]}, ctx,
-            name + " in device:" + std::to_string(ctx.device_id));
-      }
+    int num_worker = _ctxes.size();
+    {
+      // share self data to others
+      CHECK(sampler_ctx == part_data[sampler_id]->Ctx());
+      auto shared_data = part_data[sampler_id]->CPtr<IdType>();
+      cudaIpcMemHandle_t &mem_handle =
+        _shared_data->mem_handle[sampler_ctx.device_id];
+      CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
     }
-    Device::Get(sampler_ctx)->SetDevice(sampler_ctx);
+
+    _Barrier();
+
+    // receive data from others
+    for (int i = 0; i < num_worker; ++i) {
+      if (i == sampler_id) {
+        continue;
+      }
+      CHECK(part_data[i] == nullptr);
+      auto ctx = _ctxes[i];
+      cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
+      void *ptr;
+      CUDA_CALL(cudaIpcOpenMemHandle(
+            &ptr, mem_handle, cudaIpcMemLazyEnablePeerAccess));
+      part_data[i] = Tensor::FromBlob(ptr, kI32, {part_size_vec[i]}, ctx,
+          name + " in device:" + std::to_string(ctx.device_id));
+    }
+
   };
 
   IdType num_node = dataset->num_node;

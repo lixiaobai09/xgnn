@@ -69,7 +69,7 @@ constexpr int kMaxDevice = 32;
 
 class DistGraph {
  public:
-  void DatasetLoad(Dataset *dataset, Context sampler_ctx);
+  void DatasetLoad(Dataset *dataset, int sampler_id, Context sampler_ctx);
   DeviceDistGraph DeviceHandle() const;
 
   static void Create(std::vector<Context> ctxes);
@@ -87,7 +87,7 @@ class DistGraph {
 
   DistGraph(std::vector<Context> ctxes);
   void _Barrier();
-  void _DatasetPartition(const Dataset *dataset);
+  void _DatasetPartition(const Dataset *dataset, int sampler_id);
 
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
