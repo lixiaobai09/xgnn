@@ -261,8 +261,8 @@ void GPUSampleKHop3(DeviceDistGraph dist_graph,
   const dim3 block_t(GROUP_SIZE, BLOCK_WARP);
   const dim3 grid_t((num_input + TILE_SIZE - 1) / TILE_SIZE);
   sample_khop3<GROUP_SIZE, BLOCK_WARP, TILE_SIZE> <<<grid_t, block_t, 0, cu_stream>>> (
-          dist_graph, input, num_input, fanout, tmp_src, tmp_dst,
-          random_states->GetStates(), random_states->NumStates());
+        dist_graph, input, num_input, fanout, tmp_src, tmp_dst,
+        random_states->GetStates(), random_states->NumStates());
 
   sampler_device->StreamSync(ctx, stream);
   double sample_time = t0.Passed();

@@ -19,6 +19,7 @@
 #define SAMGRAPH_DIST_GRAPH_H
 
 #include <memory>
+#include <cassert>
 #include <cuda_runtime_api.h>
 
 #include "../common.h"
@@ -36,6 +37,7 @@ class DeviceDistGraph {
       _num_partition(num_partition), _num_node(num_node) {};
 
   inline __device__ IdType NumEdge(IdType node_id) {
+    assert(node_id < _num_node);
     IdType part_id, real_id;
     _GetRealPartId(node_id, &part_id, &real_id);
     IdType *indptr = _part_indptr[part_id];
