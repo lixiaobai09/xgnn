@@ -102,7 +102,7 @@ struct RunConfig {
   static UMPolicy             unified_memory_policy;
   static std::vector<Context> unified_memory_ctxes;
 
-  // is use dist graph
+  // if use dist graph
   static bool                 use_dist_graph;
 
   static inline bool UseGPUCache() {
