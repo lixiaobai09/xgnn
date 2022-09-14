@@ -81,12 +81,8 @@ void GPUSampleWeightedKHopHashDedup(const IdType *indptr, const IdType *indices,
                            StreamHandle stream, GPURandomStates *random_states,
                            uint64_t task_key);
 
-// void GPUSampleKHop3(const IdType *indptr, IdType *indices,
-//                     const IdType *input, const size_t num_input,
-//                     const size_t fanout, IdType *out_src, IdType *out_dst,
-//                     size_t *num_out, Context ctx, StreamHandle stream,
-//                     GPURandomStates *random_states, uint64_t task_key);
-void GPUSampleKHop3(DeviceDistGraph dist_graph,
+template<typename GraphType>
+void GPUSampleKHop3(GraphType graph,
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,

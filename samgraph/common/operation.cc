@@ -187,6 +187,12 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
     RunConfig::presample_epoch = 0;
   }
 
+  if (configs.count("use_dist_graph") > 0
+      && configs["use_dist_graph"] == "True") {
+    RC::use_dist_graph = true;
+    LOG(DEBUG) << "use_dist_graph=True";
+  }
+
   if(configs.count("unified_memory") > 0 && configs["unified_memory"] == "True") {
     RunConfig::unified_memory = true;
     LOG(DEBUG) << "unified_memory=True";

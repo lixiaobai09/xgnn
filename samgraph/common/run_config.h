@@ -86,7 +86,7 @@ struct RunConfig {
   static double               option_train_set_percent;
   static int                  option_train_set_part_num;
   static int                  option_train_set_part_idx;
-  
+
   static size_t               option_fake_feat_dim;
 
   static int                  omp_thread_num;
@@ -101,6 +101,9 @@ struct RunConfig {
   static std::vector<double>  unified_memory_percentages;
   static UMPolicy             unified_memory_policy;
   static std::vector<Context> unified_memory_ctxes;
+
+  // is use dist graph
+  static bool                 use_dist_graph;
 
   static inline bool UseGPUCache() {
     return cache_percentage > 0 && run_arch != kArch1;

@@ -73,8 +73,9 @@ __forceinline__ __device__ void _SetInsert(DeviceSet *d_set,
   }
 }
 
-template <size_t GROUP_SIZE, size_t BLOCK_WARP, size_t TILE_SIZE>
-__global__ void sample_khop3(DeviceDistGraph dist_graph,
+template <size_t GROUP_SIZE, size_t BLOCK_WARP,size_t TILE_SIZE,
+         typename GraphType>
+__global__ void sample_khop3(GraphType graph,
                              const IdType *input, const size_t num_input,
                              const size_t fanout, IdType *tmp_src,
                              IdType *tmp_dst, curandState *random_states,
@@ -107,8 +108,8 @@ __global__ void sample_khop3(DeviceDistGraph dist_graph,
       continue;
     }
     const IdType rid = input[index];
-    const IdType *edges = dist_graph[rid];
-    const IdType len = dist_graph.NumEdge(rid);
+    const IdType *edges = graph[rid];
+    const IdType len = graph.NumEdge(rid);
 
     if (len <= fanout) {
       IdType j = threadIdx.x;
@@ -230,7 +231,8 @@ __global__ void compact_edge(const IdType *tmp_src, const IdType *tmp_dst,
 
 }  // namespace
 
-void GPUSampleKHop3(DeviceDistGraph dist_graph,
+template<typename GraphType>
+void GPUSampleKHop3(GraphType graph,
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,
@@ -260,8 +262,8 @@ void GPUSampleKHop3(DeviceDistGraph dist_graph,
   const int TILE_SIZE = BLOCK_WARP * 16;
   const dim3 block_t(GROUP_SIZE, BLOCK_WARP);
   const dim3 grid_t((num_input + TILE_SIZE - 1) / TILE_SIZE);
-  sample_khop3<GROUP_SIZE, BLOCK_WARP, TILE_SIZE> <<<grid_t, block_t, 0, cu_stream>>> (
-        dist_graph, input, num_input, fanout, tmp_src, tmp_dst,
+  sample_khop3<GROUP_SIZE, BLOCK_WARP, TILE_SIZE, GraphType> <<<grid_t, block_t, 0, cu_stream>>> (
+        graph, input, num_input, fanout, tmp_src, tmp_dst,
         random_states->GetStates(), random_states->NumStates());
 
   sampler_device->StreamSync(ctx, stream);
@@ -313,6 +315,20 @@ void GPUSampleKHop3(DeviceDistGraph dist_graph,
 
   LOG(DEBUG) << "GPUSample: succeed ";
 }
+
+template
+void GPUSampleKHop3<DeviceDistGraph>(DeviceDistGraph graph,
+                    const IdType *input, const size_t num_input,
+                    const size_t fanout, IdType *out_src, IdType *out_dst,
+                    size_t *num_out, Context ctx, StreamHandle stream,
+                    GPURandomStates *random_states, uint64_t task_key);
+
+template
+void GPUSampleKHop3<DeviceNormalGraph>(DeviceNormalGraph graph,
+                    const IdType *input, const size_t num_input,
+                    const size_t fanout, IdType *out_src, IdType *out_dst,
+                    size_t *num_out, Context ctx, StreamHandle stream,
+                    GPURandomStates *random_states, uint64_t task_key);
 
 }  // namespace cuda
 }  // namespace common

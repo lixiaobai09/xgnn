@@ -109,6 +109,7 @@ void DoGPUSample(TaskPtr task) {
 
   const IdType *indptr = dataset->indptr->CPtr<IdType>();
   const IdType *indices = dataset->indices->CPtr<IdType>();
+  const IdType num_node = dataset->num_node;
   const float *prob_table = dataset->prob_table->CPtr<float>();
   const IdType *alias_table = dataset->alias_table->CPtr<IdType>();
   const float *prob_prefix_table = dataset->prob_prefix_table->CPtr<float>();
@@ -186,10 +187,23 @@ void DoGPUSample(TaskPtr task) {
             num_input, fanout, out_src, out_dst, num_out, sampler_ctx, sample_stream, random_states, task->key);
         break;
       case kKHop3:
-        GPUSampleKHop3(cuda::DistGraph::Get()->DeviceHandle(),
-            input, num_input, fanout, out_src,
-            out_dst, num_out, sampler_ctx, sample_stream,
-            random_states, task->key);
+        {
+          if (RunConfig::use_dist_graph) {
+            LOG(DEBUG) << "use DeviceDistGraph to sample";
+            cuda::GPUSampleKHop3<cuda::DeviceDistGraph>(
+                cuda::DistGraph::Get()->DeviceHandle(),
+                input, num_input, fanout, out_src,
+                out_dst, num_out, sampler_ctx, sample_stream,
+                random_states, task->key);
+          } else {
+            LOG(DEBUG) << "use DeviceNormalGraph to sample";
+            cuda::GPUSampleKHop3<cuda::DeviceNormalGraph>(
+                cuda::DeviceNormalGraph(indptr, indices, num_node),
+                input, num_input, fanout, out_src,
+                out_dst, num_out, sampler_ctx, sample_stream,
+                random_states, task->key);
+          }
+        }
         break;
       default:
         CHECK(0);

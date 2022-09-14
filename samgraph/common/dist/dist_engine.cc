@@ -194,7 +194,7 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
   _dataset->train_set = Tensor::CopyTo(_dataset->train_set, CPU(), stream);
   _dataset->valid_set = Tensor::CopyTo(_dataset->valid_set, CPU(), stream);
   _dataset->test_set = Tensor::CopyTo(_dataset->test_set, CPU(), stream);
-  if ((sampler_ctx.device_type == kGPU) && (RunConfig::run_arch != kArch6)) {
+  if ((sampler_ctx.device_type == kGPU) && (RunConfig::use_dist_graph == false)) {
     _dataset->indptr = Tensor::CopyTo(_dataset->indptr, sampler_ctx, stream, Constant::kAllocNoScale);
     _dataset->indices = Tensor::CopyTo(_dataset->indices, sampler_ctx, stream, Constant::kAllocNoScale);
     if (RunConfig::sample_type == kWeightedKHop || RunConfig::sample_type == kWeightedKHopHashDedup) {
@@ -203,7 +203,7 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
     } else if (RunConfig::sample_type == kWeightedKHopPrefix) {
       _dataset->prob_prefix_table = Tensor::CopyTo(_dataset->prob_prefix_table, sampler_ctx, stream, Constant::kAllocNoScale);
     }
-  } else if (RunConfig::run_arch == kArch6) {
+  } else if (RunConfig::use_dist_graph == true) {
     cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx);
   }
   LOG(DEBUG) << "SampleDataCopy finished!";
