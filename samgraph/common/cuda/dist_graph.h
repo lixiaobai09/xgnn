@@ -65,6 +65,28 @@ class DeviceDistGraph {
   IdType _num_node;
 };
 
+class DeviceNormalGraph {
+ public:
+  DeviceNormalGraph(const IdType *indptr, const IdType *indices,
+      IdType num_node)
+    : _indptr(indptr), _indices(indices), _num_node(num_node) {};
+
+  inline __device__ IdType NumEdge(IdType node_id) {
+    assert(node_id < _num_node);
+    return (_indptr[node_id + 1] - _indptr[node_id]);
+  }
+
+  inline __device__ const IdType* operator[] (IdType node_id) {
+    IdType offset = _indptr[node_id];
+    return (_indices + offset);
+  }
+
+ private:
+  const IdType *_indptr;
+  const IdType *_indices;
+  IdType _num_node;
+};
+
 constexpr int kMaxDevice = 32;
 
 class DistGraph {
