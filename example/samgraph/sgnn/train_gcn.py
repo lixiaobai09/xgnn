@@ -59,6 +59,8 @@ def parse_args(default_run_config):
                            default=default_run_config['dropout'])
     argparser.add_argument('--weight-decay', type=float,
                            default=default_run_config['weight_decay'])
+    argparser.add_argument('--use-dist-graph', action="store_true",
+                           default=False)
 
     return vars(argparser.parse_args())
 
