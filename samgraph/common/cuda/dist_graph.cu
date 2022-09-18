@@ -59,6 +59,7 @@ void DistGraph::_DatasetPartition(const Dataset *dataset, int sampler_id) {
 
 void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
     Context sampler_ctx) {
+  _sampler_id = sampler_id;
   _DatasetPartition(dataset, sampler_id);
 
   auto DataIpcShare = [&](std::vector<TensorPtr> &part_data,
