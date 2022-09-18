@@ -147,9 +147,21 @@ void DoGPUSample(TaskPtr task) {
     // Sample a compact coo graph
     switch (RunConfig::sample_type) {
       case kKHop0:
-        cuda::GPUSampleKHop0(indptr, indices, input, num_input, fanout, out_src,
-                       out_dst, num_out, sampler_ctx, sample_stream,
-                       random_states, task->key);
+        {
+          if (RunConfig::use_dist_graph) {
+            cuda::GPUSampleKHop0<cuda::DeviceDistGraph>(
+              cuda::DistGraph::Get()->DeviceHandle(), 
+              input, num_input, fanout, out_src,
+              out_dst, num_out, sampler_ctx, sample_stream,
+              random_states, task->key);
+          } else {
+            cuda::GPUSampleKHop0<cuda::DeviceNormalGraph>(
+              cuda::DeviceNormalGraph(indptr, indices, num_node),
+              input, num_input, fanout, out_src,
+              out_dst, num_out, sampler_ctx, sample_stream,
+              random_states, task->key);
+          }
+        }
         break;
       case kKHop1:
         cuda::GPUSampleKHop1(indptr, indices, input, num_input, fanout, out_src,

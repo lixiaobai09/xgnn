@@ -29,11 +29,19 @@ namespace samgraph {
 namespace common {
 namespace cuda {
 
-void GPUSampleKHop0(const IdType *indptr, const IdType *indices,
+// void GPUSampleKHop0(const IdType *indptr, const IdType *indices,
+//                     const IdType *input, const size_t num_input,
+//                     const size_t fanout, IdType *out_src, IdType *out_dst,
+//                     size_t *num_out, Context ctx, StreamHandle stream,
+//                     GPURandomStates *random_states, uint64_t task_key);
+
+template<typename GraphType>
+void GPUSampleKHop0(GraphType graph, 
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,
                     GPURandomStates *random_states, uint64_t task_key);
+
 
 void GPUSampleKHop1(const IdType *indptr, const IdType *indices,
                     const IdType *input, const size_t num_input,
