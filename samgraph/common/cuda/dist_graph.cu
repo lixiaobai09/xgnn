@@ -59,6 +59,7 @@ void DistGraph::_DatasetPartition(const Dataset *dataset, int sampler_id) {
 
 void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
     Context sampler_ctx) {
+  _sampler_id = sampler_id;
   _DatasetPartition(dataset, sampler_id);
 
   auto DataIpcShare = [&](std::vector<TensorPtr> &part_data,
@@ -113,14 +114,21 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   }
   DataIpcShare(_part_indices, part_size_vec, "dataset part indices");
 
-  CUDA_CALL(cudaMallocManaged(
-        (void**)&_d_part_indptr, num_device * sizeof(IdType*)));
-  CUDA_CALL(cudaMallocManaged(
-        (void**)&_d_part_indices, num_device * sizeof(IdType*)));
-  for (IdType i = 0; i < num_device; ++i) {
-    _d_part_indptr[i] = _part_indptr[i]->Ptr<IdType>();
-    _d_part_indices[i] = _part_indices[i]->Ptr<IdType>();
+  CUDA_CALL(cudaMalloc((void **)&_d_part_indptr, num_device * sizeof(IdType *)));
+  CUDA_CALL(cudaMalloc((void **)&_d_part_indices, num_device * sizeof(IdType *)));
+
+  IdType **h_part_indptr, **h_part_indices;
+  CUDA_CALL(cudaMallocHost(&h_part_indptr, num_device * sizeof(IdType*)));
+  CUDA_CALL(cudaMallocHost(&h_part_indices, num_device * sizeof(IdType*)));
+  for (IdType i = 0; i < num_device; i++) {
+    h_part_indptr[i] = _part_indptr[i]->Ptr<IdType>();
+    h_part_indices[i] = _part_indices[i]->Ptr<IdType>();
   }
+  CUDA_CALL(cudaMemcpy(_d_part_indptr, h_part_indptr, sizeof(IdType *) * num_device, cudaMemcpyDefault));
+  CUDA_CALL(cudaMemcpy(_d_part_indices, h_part_indices, sizeof(IdType *) * num_device, cudaMemcpyDefault));
+
+  CUDA_CALL(cudaFreeHost(h_part_indptr));
+  CUDA_CALL(cudaFreeHost(h_part_indices));
 
   _num_node = dataset->num_node;
 }
@@ -132,6 +140,7 @@ DeviceDistGraph DistGraph::DeviceHandle() const {
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
   int num_worker = ctxes.size();
+  _sampler_id = Constant::kEmptyKey;
   _ctxes = ctxes;
   _shared_data = static_cast<SharedData*>(mmap(NULL, sizeof(SharedData),
                       PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0));
@@ -149,8 +158,19 @@ void DistGraph::_Barrier() {
 
 void DistGraph::Release(DistGraph *dist_graph) {
   // XXX: release ipc memory with cudaIpcCloseMemHandle?
-  CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indptr));
-  CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indices));
+  if (dist_graph->_sampler_id != Constant::kEmptyKey) {
+    for (int i = 0; i < dist_graph->_part_indptr.size(); i++) {
+      if (i != dist_graph->_sampler_id) {
+        CUDA_CALL(cudaIpcCloseMemHandle(dist_graph->_part_indptr[i]->MutableData()));
+        CUDA_CALL(cudaIpcCloseMemHandle(dist_graph->_part_indices[i]->MutableData()));
+      }
+    }
+    LOG(INFO) << "Release DistGraph" << " " << dist_graph->_sampler_id;
+    // pthread_barrier_wait(&dist_graph->_shared_data->barrier);
+
+    CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indptr));
+    CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indices));
+  }
   pthread_barrier_destroy(&dist_graph->_shared_data->barrier);
   munmap(dist_graph->_shared_data, sizeof(SharedData));
 }

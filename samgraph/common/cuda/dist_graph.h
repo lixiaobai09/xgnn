@@ -111,6 +111,7 @@ class DistGraph {
   void _Barrier();
   void _DatasetPartition(const Dataset *dataset, int sampler_id);
 
+  int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
   std::vector<Context> _ctxes;
