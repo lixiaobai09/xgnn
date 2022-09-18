@@ -113,14 +113,21 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   }
   DataIpcShare(_part_indices, part_size_vec, "dataset part indices");
 
-  CUDA_CALL(cudaMallocManaged(
-        (void**)&_d_part_indptr, num_device * sizeof(IdType*)));
-  CUDA_CALL(cudaMallocManaged(
-        (void**)&_d_part_indices, num_device * sizeof(IdType*)));
-  for (IdType i = 0; i < num_device; ++i) {
-    _d_part_indptr[i] = _part_indptr[i]->Ptr<IdType>();
-    _d_part_indices[i] = _part_indices[i]->Ptr<IdType>();
+  CUDA_CALL(cudaMalloc((void **)&_d_part_indptr, num_device * sizeof(IdType *)));
+  CUDA_CALL(cudaMalloc((void **)&_d_part_indices, num_device * sizeof(IdType *)));
+
+  IdType **h_part_indptr, **h_part_indices;
+  CUDA_CALL(cudaMallocHost(&h_part_indptr, num_device * sizeof(IdType*)));
+  CUDA_CALL(cudaMallocHost(&h_part_indices, num_device * sizeof(IdType*)));
+  for (IdType i = 0; i < num_device; i++) {
+    h_part_indptr[i] = _part_indptr[i]->Ptr<IdType>();
+    h_part_indices[i] = _part_indices[i]->Ptr<IdType>();
   }
+  CUDA_CALL(cudaMemcpy(_d_part_indptr, h_part_indptr, sizeof(IdType *) * num_device, cudaMemcpyDefault));
+  CUDA_CALL(cudaMemcpy(_d_part_indices, h_part_indices, sizeof(IdType *) * num_device, cudaMemcpyDefault));
+
+  CUDA_CALL(cudaFreeHost(h_part_indptr));
+  CUDA_CALL(cudaFreeHost(h_part_indices));
 
   _num_node = dataset->num_node;
 }
