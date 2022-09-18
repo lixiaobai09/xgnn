@@ -132,6 +132,7 @@ DeviceDistGraph DistGraph::DeviceHandle() const {
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
   int num_worker = ctxes.size();
+  _sampler_id = Constant::kEmptyKey;
   _ctxes = ctxes;
   _shared_data = static_cast<SharedData*>(mmap(NULL, sizeof(SharedData),
                       PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0));
@@ -149,8 +150,19 @@ void DistGraph::_Barrier() {
 
 void DistGraph::Release(DistGraph *dist_graph) {
   // XXX: release ipc memory with cudaIpcCloseMemHandle?
-  CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indptr));
-  CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indices));
+  if (dist_graph->_sampler_id != Constant::kEmptyKey) {
+    for (int i = 0; i < dist_graph->_part_indptr.size(); i++) {
+      if (i != dist_graph->_sampler_id) {
+        CUDA_CALL(cudaIpcCloseMemHandle(dist_graph->_part_indptr[i]->MutableData()));
+        CUDA_CALL(cudaIpcCloseMemHandle(dist_graph->_part_indices[i]->MutableData()));
+      }
+    }
+    LOG(INFO) << "Release DistGraph" << " " << dist_graph->_sampler_id;
+    // pthread_barrier_wait(&dist_graph->_shared_data->barrier);
+
+    CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indptr));
+    CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indices));
+  }
   pthread_barrier_destroy(&dist_graph->_shared_data->barrier);
   munmap(dist_graph->_shared_data, sizeof(SharedData));
 }
