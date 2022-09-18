@@ -96,8 +96,9 @@ __global__ void sample_khop0(const IdType *indptr, const IdType *indices,
 
 #else
 
-template <size_t WARP_SIZE, size_t BLOCK_WARP, size_t TILE_SIZE>
-__global__ void sample_khop0(const IdType *indptr, const IdType *indices,
+template <size_t WARP_SIZE, size_t BLOCK_WARP, size_t TILE_SIZE,
+          typename GraphType>
+__global__ void sample_khop0(GraphType graph,
                              const IdType *input, const size_t num_input,
                              const size_t fanout, IdType *tmp_src,
                              IdType *tmp_dst, curandState *random_states,
@@ -114,14 +115,16 @@ __global__ void sample_khop0(const IdType *indptr, const IdType *indices,
 
   while (index < last_index) {
     const IdType rid = input[index];
-    const IdType off = indptr[rid];
-    const IdType len = indptr[rid + 1] - indptr[rid];
+    const IdType *edges = graph[rid];
+    const IdType len = graph.NumEdge(rid);
+    // const IdType off = indptr[rid];
+    // const IdType len = indptr[rid + 1] - indptr[rid];
 
     if (len <= fanout) {
       size_t j = threadIdx.x;
       for (; j < len; j += WARP_SIZE) {
         tmp_src[index * fanout + j] = rid;
-        tmp_dst[index * fanout + j] = indices[off + j];
+        tmp_dst[index * fanout + j] = edges[j];
       }
       __syncwarp();
       for (; j < fanout; j += WARP_SIZE) {
@@ -132,13 +135,13 @@ __global__ void sample_khop0(const IdType *indptr, const IdType *indices,
       size_t j = threadIdx.x;
       for (; j < fanout; j += WARP_SIZE) {
         tmp_src[index * fanout + j] = rid;
-        tmp_dst[index * fanout + j] = indices[off + j];
+        tmp_dst[index * fanout + j] = edges[j];
       }
       __syncwarp();
       for (; j < len; j += WARP_SIZE) {
         size_t k = curand(&local_state) % (j + 1);
         if (k < fanout) {
-          atomicExch(tmp_dst + index * fanout + k, indices[off + j]);
+          atomicExch(tmp_dst + index * fanout + k, edges[j]);
         }
       }
     }
@@ -234,7 +237,8 @@ __global__ void compact_edge(const IdType *tmp_src, const IdType *tmp_dst,
 
 }  // namespace
 
-void GPUSampleKHop0(const IdType *indptr, const IdType *indices,
+template <typename GraphType>
+void GPUSampleKHop0(GraphType graph,
                     const IdType *input, const size_t num_input,
                     const size_t fanout, IdType *out_src, IdType *out_dst,
                     size_t *num_out, Context ctx, StreamHandle stream,
@@ -274,8 +278,8 @@ void GPUSampleKHop0(const IdType *indptr, const IdType *indices,
     const dim3 grid_t((num_input + TILE_SIZE - 1) / TILE_SIZE);
     Timer _kt;
 
-    sample_khop0<WARP_SIZE, BLOCK_WARP, TILE_SIZE> <<<grid_t, block_t, 0, cu_stream>>> (
-            indptr, indices, input, num_input, fanout, tmp_src, tmp_dst,
+    sample_khop0<WARP_SIZE, BLOCK_WARP, TILE_SIZE, GraphType> <<<grid_t, block_t, 0, cu_stream>>> (
+            graph, input, num_input, fanout, tmp_src, tmp_dst,
             random_states->GetStates(), random_states->NumStates());
     sampler_device->StreamSync(ctx, stream);
     double kernel_time = _kt.Passed();
@@ -335,6 +339,20 @@ void GPUSampleKHop0(const IdType *indptr, const IdType *indices,
 
   LOG(DEBUG) << "GPUSample: succeed ";
 }
+
+template
+void GPUSampleKHop0<DeviceDistGraph>(DeviceDistGraph graph,
+                    const IdType *input, const size_t num_input,
+                    const size_t fanout, IdType *out_src, IdType *out_dst,
+                    size_t *num_out, Context ctx, StreamHandle stream,
+                    GPURandomStates *random_states, uint64_t task_key);
+
+template
+void GPUSampleKHop0<DeviceNormalGraph>(DeviceNormalGraph graph,
+                    const IdType *input, const size_t num_input,
+                    const size_t fanout, IdType *out_src, IdType *out_dst,
+                    size_t *num_out, Context ctx, StreamHandle stream,
+                    GPURandomStates *random_states, uint64_t task_key);
 
 }  // namespace cuda
 }  // namespace common

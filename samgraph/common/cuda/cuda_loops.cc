@@ -29,6 +29,7 @@
 #include "cuda_engine.h"
 #include "cuda_function.h"
 #include "cuda_hashtable.h"
+#include "dist_graph.h"
 
 namespace samgraph {
 namespace common {
@@ -113,9 +114,17 @@ void DoGPUSample(TaskPtr task) {
     // Sample a compact coo graph
     switch (RunConfig::sample_type) {
       case kKHop0:
-        GPUSampleKHop0(indptr, indices, input, num_input, fanout, out_src,
-                      out_dst, num_out, sampler_ctx, sample_stream,
-                      random_states, task->key);
+        {
+          if (RunConfig::use_dist_graph) {
+            LOG(FATAL) << "DistGraph only in dist mode";
+          } else {
+            GPUSampleKHop0<DeviceNormalGraph>(
+              DeviceNormalGraph(indptr, indices, dataset->num_node), 
+              input, num_input, fanout, out_src,
+              out_dst, num_out, sampler_ctx, sample_stream,
+              random_states, task->key);
+          }
+        }
         break;
       case kKHop1:
         GPUSampleKHop1(indptr, indices, input, num_input, fanout, out_src,
@@ -329,9 +338,17 @@ void DoGPUSampleDyCache(TaskPtr task, std::function<void(TaskPtr)> & nbr_cb) {
     // Sample a compact coo graph
     switch (RunConfig::sample_type) {
       case kKHop0:
-        GPUSampleKHop0(indptr, indices, input, num_input, fanout, out_src,
-                       out_dst, num_out, sampler_ctx, sample_stream,
-                       random_states, task->key);
+      {
+        if (RunConfig::use_dist_graph) {
+          LOG(FATAL) << "DistGraph only in dist mode";
+        } else {
+          GPUSampleKHop0(
+            DeviceNormalGraph(indptr, indices, dataset->num_node), 
+            input, num_input, fanout, out_src,
+            out_dst, num_out, sampler_ctx, sample_stream,
+            random_states, task->key);
+        }
+      }
         break;
       case kKHop1:
         GPUSampleKHop1(indptr, indices, input, num_input, fanout, out_src,
