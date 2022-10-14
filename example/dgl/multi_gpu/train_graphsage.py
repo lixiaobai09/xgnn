@@ -52,6 +52,8 @@ def parse_args(default_run_config):
                            default=default_run_config['use_gpu_sampling'])
     argparser.add_argument('--no-use-gpu-sampling',
                            dest='use_gpu_sampling', action='store_false')
+    argparser.add_argument('--use-uva', action='store_true',
+                            default=False)
     argparser.add_argument('--devices', nargs='+',
                            type=int, default=default_run_config['devices'])
     argparser.add_argument('--dataset', type=str,
@@ -151,6 +153,9 @@ def get_run_config():
     else:
         run_config['sample_devices'] = ['cpu' for _ in run_config['devices']]
         run_config['train_devices'] = run_config['devices']
+        if run_config['use_uva']:
+            run_config['num_sampling_worker'] = 0
+    assert(not (run_config['use_gpu_sampling'] == True and run_config['use_uva'] == True))
 
     run_config['num_thread'] = torch.get_num_threads(
     ) // run_config['num_worker']
@@ -196,6 +201,7 @@ def run(worker_id, run_config):
     sample_device = torch.device(run_config['sample_devices'][worker_id])
     train_device = torch.device(run_config['train_devices'][worker_id])
     num_worker = run_config['num_worker']
+    torch.cuda.set_device(train_device)
 
     if num_worker > 1:
         dist_init_method = 'tcp://{master_ip}:{master_port}'.format(
@@ -216,6 +222,10 @@ def run(worker_id, run_config):
     in_feats = dataset.feat_dim
     n_classes = dataset.num_class
 
+    # use UVA to sure the Graph g is in 'cpu' device
+    if (run_config['use_uva']):
+        sample_device = train_device # for ID de-duplicate and remap on GPU
+
     sampler = dgl.dataloading.MultiLayerNeighborSampler(run_config['fanout'])
     dataloader = dgl.dataloading.NodeDataLoader(
         g,
@@ -226,7 +236,9 @@ def run(worker_id, run_config):
         shuffle=True,
         drop_last=False,
         prefetch_factor=run_config['prefetch_factor'],
-        num_workers=run_config['num_sampling_worker'])
+        num_workers=run_config['num_sampling_worker'],
+        device = sample_device,
+        use_uva = run_config['use_uva'])
 
     if (run_config['report_acc'] != 0) and (worker_id == 0):
         accuracy = Accuracy(g, dataset.valid_set.to(sample_device), dataset.test_set.to(sample_device),
@@ -274,13 +286,6 @@ def run(worker_id, run_config):
         epoch_acc_time = 0.0
         epoch_num_node = 0
         epoch_num_sample = 0
-
-        # In distributed mode, calling the set_epoch() method at the beginning of each epoch
-        # before creating the DataLoader iterator is necessary to make shuffling work properly across multiple epochs.
-        # Otherwise, the same ordering will be always used.
-        # https://pytorch.org/docs/stable/data.html
-        if (num_worker > 1):
-            dataloader.set_epoch(epoch)
 
         tic = time.time()
         t0 = time.time()
@@ -406,5 +411,5 @@ if __name__ == '__main__':
             p = mp.Process(target=run, args=(worker_id, run_config))
             p.start()
             workers.append(p)
-        
+
         wait_and_join(workers)

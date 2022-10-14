@@ -99,13 +99,17 @@ class PinSAGESampler(object):
             g, random_walk_length, random_walk_restart_prob, num_random_walk, num_neighbor)
 
     def sample_blocks(self, _, seed_nodes):
+        output_nodes = seed_nodes
         blocks = []
         for _ in range(self.num_layer):
             frontier = self.sampler(seed_nodes)
             block = dgl.to_block(frontier, seed_nodes)
             seed_nodes = block.srcdata[dgl.NID]
             blocks.insert(0, block)
-        return blocks
+        return seed_nodes, output_nodes, blocks
+
+    def sample(self, _, seed_nodes):
+        return self.sample_blocks(_, seed_nodes)
 
 
 def parse_args(default_run_config):
@@ -114,6 +118,8 @@ def parse_args(default_run_config):
                            default=default_run_config['use_gpu_sampling'])
     argparser.add_argument('--no-use-gpu-sampling',
                            dest='use_gpu_sampling', action='store_false')
+    argparser.add_argument('--use-uva', action='store_true',
+                            default=False)
     argparser.add_argument('--devices', nargs='+',
                            type=int, default=default_run_config['devices'])
     argparser.add_argument('--dataset', type=str,
@@ -219,6 +225,9 @@ def get_run_config():
     else:
         run_config['sample_devices'] = ['cpu' for _ in run_config['devices']]
         run_config['train_devices'] = run_config['devices']
+        if run_config['use_uva']:
+            run_config['num_sampling_worker'] = 0
+    assert(not (run_config['use_gpu_sampling'] == True and run_config['use_uva'] == True))
 
     run_config['num_thread'] = torch.get_num_threads(
     ) // run_config['num_worker']
@@ -262,6 +271,7 @@ def run(worker_id, run_config):
     sample_device = torch.device(run_config['sample_devices'][worker_id])
     train_device = torch.device(run_config['train_devices'][worker_id])
     num_worker = run_config['num_worker']
+    torch.cuda.set_device(train_device)
 
     if num_worker > 1:
         dist_init_method = 'tcp://{master_ip}:{master_port}'.format(
@@ -282,6 +292,10 @@ def run(worker_id, run_config):
     in_feats = dataset.feat_dim
     n_classes = dataset.num_class
 
+    # use UVA to sure the Graph g is in 'cpu' device
+    if (run_config['use_uva']):
+        sample_device = train_device # for ID de-duplicate and remap on GPU
+
     sampler = PinSAGESampler(g, run_config['random_walk_length'], run_config['random_walk_restart_prob'],
                              run_config['num_random_walk'], run_config['num_neighbor'], run_config['num_layer'])
     dataloader = dgl.dataloading.NodeDataLoader(
@@ -294,6 +308,8 @@ def run(worker_id, run_config):
         ,drop_last=False
         ,prefetch_factor=run_config['prefetch_factor']
         ,num_workers=run_config['num_sampling_worker']
+        ,device = sample_device
+        ,use_uva = run_config['use_uva']
         )
 
     model = PinSAGE(in_feats, run_config['num_hidden'], n_classes,
@@ -333,13 +349,6 @@ def run(worker_id, run_config):
         epoch_train_time = 0.0
         epoch_num_node = 0
         epoch_num_sample = 0
-
-        # In distributed mode, calling the set_epoch() method at the beginning of each epoch
-        # before creating the DataLoader iterator is necessary to make shuffling work properly across multiple epochs.
-        # Otherwise, the same ordering will be always used.
-        # https://pytorch.org/docs/stable/data.html
-        if (num_worker > 1):
-            dataloader.set_epoch(epoch)
 
         tic = time.time()
         t0 = time.time()
