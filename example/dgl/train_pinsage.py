@@ -96,13 +96,17 @@ class PinSAGESampler(object):
             g, random_walk_length, random_walk_restart_prob, num_random_walk, num_neighbor)
 
     def sample_blocks(self, _, seed_nodes):
+        output_nodes = seed_nodes
         blocks = []
         for _ in range(self.num_layer):
             frontier = self.sampler(seed_nodes)
             block = dgl.to_block(frontier, seed_nodes)
             seed_nodes = block.srcdata[dgl.NID]
             blocks.insert(0, block)
-        return blocks
+        return seed_nodes, output_nodes, blocks
+
+    def sample(self, _, seed_nodes):
+        return self.sample_blocks(_, seed_nodes)
 
 
 def parse_args(default_run_config):
