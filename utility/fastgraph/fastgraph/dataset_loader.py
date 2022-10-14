@@ -1,12 +1,12 @@
 """
   Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
-  
+
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
-  
+
       http://www.apache.org/licenses/LICENSE-2.0
-  
+
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -72,10 +72,10 @@ class DatasetLoader:
         print('Loading {:s} uses {:4f} secs.'.format(dataset_path, toc-tic))
 
     def load32(self, dataset_path):
-        self.indptr = torch.from_numpy(np.memmap(os.path.join(
-            dataset_path, 'indptr.bin'), dtype='int32', mode='r', shape=(self.num_node + 1,)))
-        self.indices = torch.from_numpy(np.memmap(os.path.join(
-            dataset_path, 'indices.bin'), dtype='int32', mode='r', shape=(self.num_edge,)))
+        self.indptr = torch.from_numpy(np.copy(np.memmap(os.path.join(
+            dataset_path, 'indptr.bin'), dtype='int32', mode='r', shape=(self.num_node + 1,))))
+        self.indices = torch.from_numpy(np.copy(np.memmap(os.path.join(
+            dataset_path, 'indices.bin'), dtype='int32', mode='r', shape=(self.num_edge,))))
         # self.eids = torch.from_numpy(
         #     np.arange(0, self.num_edge, dtype='int32'))
 
@@ -89,10 +89,10 @@ class DatasetLoader:
 
 
     def load64(self, dataset_path):
-        self.indptr = torch.from_numpy(np.memmap(os.path.join(
-            dataset_path, 'indptr64.bin'), dtype='int64', mode='r', shape=(self.num_node + 1,)))
-        self.indices = torch.from_numpy(np.memmap(os.path.join(
-            dataset_path, 'indices64.bin'), dtype='int64', mode='r', shape=(self.num_edge,)))
+        self.indptr = torch.from_numpy(np.copy(np.memmap(os.path.join(
+            dataset_path, 'indptr64.bin'), dtype='int64', mode='r', shape=(self.num_node + 1,))))
+        self.indices = torch.from_numpy(np.copy(np.memmap(os.path.join(
+            dataset_path, 'indices64.bin'), dtype='int64', mode='r', shape=(self.num_edge,))))
         # self.eids = torch.from_numpy(
         #     np.arange(0, self.num_edge, dtype='int64'))
 
