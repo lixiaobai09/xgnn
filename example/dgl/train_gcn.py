@@ -61,6 +61,8 @@ def parse_args(default_run_config):
                            default=default_run_config['use_gpu_sampling'])
     argparser.add_argument('--no-use-gpu-sampling',
                            dest='use_gpu_sampling', action='store_false')
+    argparser.add_argument('--use-uva', action='store_true',
+                            default=False)
     argparser.add_argument('--device', type=str,
                            default=default_run_config['device'])
     argparser.add_argument('--dataset', type=str,
@@ -154,6 +156,7 @@ def get_run_config():
     else:
         run_config['sample_device'] = 'cpu'
         run_config['train_device'] = run_config['device']
+    assert(not (run_config['use_gpu_sampling'] == True and run_config['use_uva'] == True))
 
     print('config:eval_tsp="{:}"'.format(time.strftime(
         "%Y-%m-%d %H:%M:%S", time.localtime())))
@@ -204,6 +207,10 @@ def run():
     in_feats = dataset.feat_dim
     n_classes = dataset.num_class
 
+    # use UVA to sure the Graph g is in 'cpu' device
+    if (run_config['use_uva']):
+        sample_device = train_device # for ID de-duplicate and remap on GPU
+
     sampler = dgl.dataloading.MultiLayerNeighborSampler(run_config['fanout'])
     dataloader = dgl.dataloading.NodeDataLoader(
         g,
@@ -213,7 +220,9 @@ def run():
         shuffle=True,
         drop_last=False,
         prefetch_factor=run_config['prefetch_factor'],
-        num_workers=run_config['num_sampling_worker'])
+        num_workers=run_config['num_sampling_worker'],
+        device=sample_device,
+        use_uva=run_config['use_uva'])
 
     model = GCN(in_feats, run_config['num_hidden'],
                 n_classes, run_config['num_layer'], F.relu, run_config['dropout'])
