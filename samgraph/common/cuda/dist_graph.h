@@ -101,6 +101,14 @@ class DistGraph {
     return _inst;
   }
 
+  struct GroupConfig{
+    Context ctx;
+    int part_id;
+    std::vector<Context> ctx_group;
+    GroupConfig(Context ctx_, int part_id_, std::vector<Context> group_)
+      : ctx(ctx_), part_id(part_id_), ctx_group(group_) {};
+  };
+
  private:
   DistGraph() = delete;
   DistGraph(const DistGraph &) = delete;
@@ -114,7 +122,7 @@ class DistGraph {
   int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
-  std::vector<Context> _ctxes;
+  std::vector<GroupConfig> _group_configs;
   IdType _num_node;
 
   IdType **_d_part_indptr;

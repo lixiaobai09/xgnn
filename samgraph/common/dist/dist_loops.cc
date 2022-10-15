@@ -150,7 +150,7 @@ void DoGPUSample(TaskPtr task) {
         {
           if (RunConfig::use_dist_graph) {
             cuda::GPUSampleKHop0<cuda::DeviceDistGraph>(
-              cuda::DistGraph::Get()->DeviceHandle(), 
+              cuda::DistGraph::Get()->DeviceHandle(),
               input, num_input, fanout, out_src,
               out_dst, num_out, sampler_ctx, sample_stream,
               random_states, task->key);
@@ -164,15 +164,23 @@ void DoGPUSample(TaskPtr task) {
         }
         break;
       case kKHop1:
-        cuda::GPUSampleKHop1(indptr, indices, input, num_input, fanout, out_src,
-                       out_dst, num_out, sampler_ctx, sample_stream,
-                       random_states, task->key);
+        {
+          CHECK(RunConfig::use_dist_graph == false)
+            << "this algorithm not support DistGraph engine";
+          cuda::GPUSampleKHop1(indptr, indices, input, num_input, fanout, out_src,
+                         out_dst, num_out, sampler_ctx, sample_stream,
+                         random_states, task->key);
+        }
         break;
       case kWeightedKHop:
-        cuda::GPUSampleWeightedKHop(indptr, indices, prob_table, alias_table, input,
-                              num_input, fanout, out_src, out_dst, num_out,
-                              sampler_ctx, sample_stream, random_states,
-                              task->key);
+        {
+          CHECK(RunConfig::use_dist_graph == false)
+            << "this algorithm not support DistGraph engine";
+          cuda::GPUSampleWeightedKHop(indptr, indices, prob_table, alias_table, input,
+                                num_input, fanout, out_src, out_dst, num_out,
+                                sampler_ctx, sample_stream, random_states,
+                                task->key);
+        }
         break;
       case kRandomWalk:
         CHECK_EQ(fanout, RunConfig::num_neighbor);
@@ -184,19 +192,31 @@ void DoGPUSample(TaskPtr task) {
             task->key);
         break;
       case kWeightedKHopPrefix:
-        cuda::GPUSampleWeightedKHopPrefix(indptr, indices, prob_prefix_table, input,
-                              num_input, fanout, out_src, out_dst, num_out,
-                              sampler_ctx, sample_stream, random_states,
-                              task->key);
+        {
+          CHECK(RunConfig::use_dist_graph == false)
+            << "this algorithm not support DistGraph engine";
+          cuda::GPUSampleWeightedKHopPrefix(indptr, indices, prob_prefix_table, input,
+                                num_input, fanout, out_src, out_dst, num_out,
+                                sampler_ctx, sample_stream, random_states,
+                                task->key);
+        }
         break;
       case kKHop2:
-        cuda::GPUSampleKHop2(indptr, const_cast<IdType*>(indices), input, num_input, fanout, out_src,
-                       out_dst, num_out, sampler_ctx, sample_stream,
-                       random_states, task->key);
+        {
+          CHECK(RunConfig::use_dist_graph == false)
+            << "this algorithm not support DistGraph engine";
+          cuda::GPUSampleKHop2(indptr, const_cast<IdType*>(indices), input, num_input, fanout, out_src,
+                         out_dst, num_out, sampler_ctx, sample_stream,
+                         random_states, task->key);
+        }
         break;
       case kWeightedKHopHashDedup:
-        cuda::GPUSampleWeightedKHopHashDedup(indptr, const_cast<IdType*>(indices), const_cast<float*>(prob_table), alias_table, input,
-            num_input, fanout, out_src, out_dst, num_out, sampler_ctx, sample_stream, random_states, task->key);
+        {
+          CHECK(RunConfig::use_dist_graph == false)
+            << "this algorithm not support DistGraph engine";
+          cuda::GPUSampleWeightedKHopHashDedup(indptr, const_cast<IdType*>(indices), const_cast<float*>(prob_table), alias_table, input,
+              num_input, fanout, out_src, out_dst, num_out, sampler_ctx, sample_stream, random_states, task->key);
+        }
         break;
       case kKHop3:
         {
