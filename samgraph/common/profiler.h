@@ -88,7 +88,6 @@ enum LogStepItem {
   kLogL2CacheCopyTime,
   // L3
   kLogL3KHopSampleCooTime,
-  kLogL3KHopSampleKernelTime,
   kLogL3KHopSampleSortCooTime,
   kLogL3KHopSampleCountEdgeTime,
   kLogL3KHopSampleCompactEdgesTime,
@@ -124,7 +123,6 @@ enum LogEpochItem {
   kLogEpochSampleCooTime,
   kLogEpochIdRemapTime,
   kLogEpochShuffleTime,
-  kLogEpochSampleKernelTime,
   kLogEpochCopyTime,
   kLogEpochConvertTime,
   kLogEpochTrainTime,

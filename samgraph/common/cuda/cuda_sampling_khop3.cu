@@ -312,6 +312,7 @@ void GPUSampleKHop3(GraphType graph,
                              count_edge_time);
   Profiler::Get().LogStepAdd(task_key, kLogL3KHopSampleCompactEdgesTime,
                              compact_edge_time);
+  Profiler::Get().LogEpochAdd(task_key, kLogEpochSampleCooTime, sample_time);
 
   LOG(DEBUG) << "GPUSample: succeed ";
 }
