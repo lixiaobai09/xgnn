@@ -57,7 +57,18 @@ void GPUSampleWeightedKHop(const IdType *indptr, const IdType *indices,
                            StreamHandle stream, GPURandomStates *random_states,
                            uint64_t task_key);
 
-void GPUSampleRandomWalk(const IdType *indptr, const IdType *indices,
+// void GPUSampleRandomWalk(const IdType *indptr, const IdType *indices,
+//                          const IdType *input, const size_t num_input,
+//                          const size_t random_walk_length,
+//                          const double random_walk_restart_prob,
+//                          const size_t num_random_walk, const size_t K,
+//                          IdType *out_src, IdType *out_dst, IdType *out_data,
+//                          size_t *num_out, FrequencyHashmap *frequency_hashmap,
+//                          Context ctx, StreamHandle stream,
+//                          GPURandomStates *random_states, uint64_t task_key);
+
+template<typename GraphType>
+void GPUSampleRandomWalk(GraphType graph,
                          const IdType *input, const size_t num_input,
                          const size_t random_walk_length,
                          const double random_walk_restart_prob,
