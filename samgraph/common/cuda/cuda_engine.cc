@@ -197,10 +197,6 @@ void GPUEngine::Init() {
   Profiler::Get().LogInit(kLogInitL3InternalStateCreateCtx, time_cuda_context);
   Profiler::Get().LogInit(kLogInitL3InternalStateCreateStream, time_create_stream);
 
-  // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL1AfterSetCtx, after_set_ctx);
-  // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL1BeforeGraphLoad, before_load_graph);
-  // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL1AfterGraphLoad, after_load_graph);
-  // Profiler::Get().LogMem(, after_load_graph-before_load_graph);
   Profiler::Get().LogInit(kLogInitL1GraphMemory, after_load_graph - before_load_graph);
 
   LOG_MEM_USAGE(WARNING, "after build cache states");
@@ -322,7 +318,6 @@ void GPUEngine::Start() {
 
 void GPUEngine::Shutdown() {
   LOG_MEM_USAGE(WARNING, "end of train");
-  // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL1BeforeSamplerRelease, get_cuda_used(_sampler_ctx));
   {
     auto device = Device::Get(_sampler_ctx);
     Profiler::Get().LogInit(kLogInitL1WorkspaceTotalMemory, device->TotalSize(_sampler_ctx));

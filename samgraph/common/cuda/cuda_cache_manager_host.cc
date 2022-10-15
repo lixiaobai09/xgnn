@@ -87,7 +87,6 @@ GPUCacheManager::GPUCacheManager(Context sampler_ctx, Context trainer_ctx,
   void *tmp_cpu_data = cpu_device->AllocDataSpace(CPU(), _cache_nbytes);
   _trainer_cache_data =
       trainer_gpu_device->AllocDataSpace(_trainer_ctx, _cache_nbytes);
-  // Profiler::Get().LogMem(trainer_ctx.device_id, kLogMemL2FeatCache, _cache_nbytes);
 Profiler::Get().LogInit(kLogInitL1FeatMemory, _cache_nbytes);
 
   // 1. Initialize the cpu hashtable
