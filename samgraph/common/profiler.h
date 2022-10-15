@@ -32,6 +32,10 @@ enum LogInitItem {
   kLogInitL1Common = 0,
   kLogInitL1Sampler, // pinmem, copy graph, *shuff, *hashtable, *random, *freq, queue, presmaple, cachetable
   kLogInitL1Trainer,
+  // L1 Memory
+  kLogInitL1GraphMemory,
+  kLogInitL1FeatMemory,
+  kLogInitL1WorkspaceTotalMemory,
   // L2
   kLogInitL2LoadDataset,
   kLogInitL2DistQueue,
@@ -129,6 +133,8 @@ enum LogEpochItem {
   kLogEpochTotalTime,
   kLogEpochFeatureBytes,
   kLogEpochMissBytes,
+  kLogEpochNumSample,
+
   kNumLogEpochItems,
 };
 

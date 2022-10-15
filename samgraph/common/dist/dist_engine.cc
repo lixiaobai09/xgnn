@@ -329,10 +329,15 @@ void DistEngine::SampleInit(int worker_id, Context ctx) {
   double time_create_stream = t_create_stream.Passed();
   LOG_MEM_USAGE(WARNING, "after create sampler stream", _sampler_ctx);
 
+  // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL1BeforeGraphLoad, get_cuda_used(_sampler_ctx));
+  auto before_load_grpah = get_cuda_used(_sampler_ctx);
   Timer t_load_graph_ds_copy;
   SampleDataCopy(worker_id, _sampler_ctx, _sample_stream);
   double time_load_graph_ds_copy = t_load_graph_ds_copy.Passed();
   LOG_MEM_USAGE(WARNING, "after sample data copy", _sampler_ctx);
+  // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL1AfterGraphLoad, get_cuda_used(_sampler_ctx));
+  auto after_load_graph = get_cuda_used(_sampler_ctx);
+  Profiler::Get().LogInit(kLogInitL1GraphMemory, after_load_graph - before_load_grpah);
 
   Timer t_sam_interal_state;
   _shuffler = nullptr;
@@ -414,7 +419,8 @@ void DistEngine::SampleInit(int worker_id, Context ctx) {
     }
     LOG_MEM_USAGE(WARNING, "after presample", _sampler_ctx);
     Timer t_cache_table_init;
-    SampleCacheTableInit();
+    if (RunConfig::run_arch != kArch6)
+      SampleCacheTableInit();
     time_cache_table = t_cache_table_init.Passed();
   }
   double time_sampler_init = t0.Passed();
@@ -678,6 +684,13 @@ void DistEngine::Shutdown() {
   }
   else if (_dist_type == DistType::Extract || _dist_type == DistType::Switch) {
     LOG_MEM_USAGE(WARNING, "trainer before shutdown", _trainer_ctx);
+  }
+
+  if (RunArch::kArch6) {
+    auto device = Device::Get(_sampler_ctx);
+    Profiler::Get().LogInit(kLogInitL1WorkspaceTotalMemory, device->TotalSize(_sampler_ctx));
+    // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL1BeforeSamplerRelease, get_cuda_used(_sampler_ctx));
+    // Profiler::Get().LogMem(_sampler_ctx.device_id, kLogMemL2SamplerReserved, device->TotalSize(_sampler_ctx));
   }
 
   if (_should_shutdown) {

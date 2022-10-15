@@ -85,6 +85,11 @@ def get_run_config():
     run_config['num_fanout'] = run_config['num_layer'] = len(
         run_config['fanout'])
 
+    if 'PEEK_MEMORY' in dict(os.environ) and dict(os.environ)['PEEK_MEMORY'] == '1':
+        run_config['peek_memory'] = True
+    else:
+        run_config['peek_memory'] = False
+
     print_run_config(run_config)
 
     return run_config
@@ -142,6 +147,7 @@ def run(worker_id, run_config):
     model.train()
 
     epoch_sample_total_times = []
+    epoch_sample_nodes = []
     epoch_sample_times = []
     epoch_get_cache_miss_index_times = []
     epoch_copy_times = []
@@ -161,6 +167,8 @@ def run(worker_id, run_config):
     print('[Worker {:d}] run for {:d} epochs with {:d} steps'.format(
         worker_id, num_epoch, num_step))
     run_start = time.time()
+
+    peek_memory = 0
 
     for epoch in range(num_epoch):
         # epoch start barrier
@@ -212,6 +220,10 @@ def run(worker_id, run_config):
 
             # sam.report_step_average(epoch, step)
 
+            if run_config['peek_memory']:
+                mem_info = torch.cuda.mem_get_info(device)
+                peek_memory = max(peek_memory, mem_info[1] - mem_info[0])
+
         event_sync()
 
         # sync the train workers
@@ -234,6 +246,7 @@ def run(worker_id, run_config):
         epoch_sample_total_times.append(
             sam.get_log_epoch_value(epoch, sam.kLogEpochSampleTotalTime)
         )
+        epoch_sample_nodes.append(sam.get_log_epoch_value(epoch, sam.kLogEpochNumSample))
         epoch_sample_times.append(
             sam.get_log_epoch_value(epoch, sam.kLogEpochSampleTime)
         )
@@ -281,10 +294,15 @@ def run(worker_id, run_config):
         test_result.append(('train_time', np.mean(epoch_train_times[1:])))
         test_result.append(('epoch_time:train_total', np.mean(
             epoch_train_total_times_profiler[1:])))
+        test_result.append(('epoch_time:mark_cache_train_total', 
+            np.mean(epoch_train_total_times_profiler[1:]) + np.mean(epoch_get_cache_miss_index_times[1:])))
         test_result.append(
             ('cache_percentage', run_config['cache_percentage']))
         test_result.append(('cache_hit_rate', np.mean(
             epoch_cache_hit_rates[1:])))
+        test_result.append(('epoch:sample_nodes', np.mean(epoch_sample_nodes[1:])))
+        # thpt, M SEPS
+        test_result.append(('epoch:sample_thpt', np.mean(np.array(epoch_sample_nodes[1:]) / np.array(epoch_sample_times[1:])) / 1e6))
         test_result.append(
             ('epoch_time:total', np.mean(epoch_total_times_python[1:])))
         test_result.append(('run_time', run_end - run_start))
@@ -295,6 +313,12 @@ def run(worker_id, run_config):
 
     sam.shutdown()
 
+    print(f"memory:graph={sam.get_log_init_value(sam.kLogInitL1GraphMemory)}")
+    print(f"memory:feature={sam.get_log_init_value(sam.kLogInitL1FeatMemory)}")
+    print(f"memory:workspace_total={sam.get_log_init_value(sam.kLogInitL1WorkspaceTotalMemory)}")
+    if run_config['peek_memory']:
+        print(f'memory:peek_memory={peek_memory}')
+    
 
 if __name__ == '__main__':
     run_config = get_run_config()

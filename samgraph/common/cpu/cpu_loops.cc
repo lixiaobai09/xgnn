@@ -186,6 +186,7 @@ void DoCPUSample(TaskPtr task) {
   Profiler::Get().LogStep(task->key, kLogL1NumNode,
                           static_cast<double>(task->input_nodes->Shape()[0]));
   Profiler::Get().LogStep(task->key, kLogL1NumSample, total_num_samples);
+  Profiler::Get().LogEpochAdd(task->key, kLogEpochNumSample, total_num_samples);
   Profiler::Get().LogStep(task->key, kLogL2LastLayerSize,
                           static_cast<double>(last_layer_num_unique));
 }
