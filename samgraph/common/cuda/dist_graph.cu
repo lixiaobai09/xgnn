@@ -1,10 +1,16 @@
 #include "dist_graph.h"
 
 #include <sys/mman.h>
+#include <sys/unistd.h>
+#include <sys/wait.h>
 
 #include <cstring>
+#include <iomanip>
+#include <set>
 
 #include "../device.h"
+#include "../timer.h"
+
 
 namespace samgraph {
 namespace common {
@@ -147,6 +153,10 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
   // TODO: from ctxes to get graph parts configs
   // bala bala ...
   std::vector<Context> ctx_group = ctxes;
+
+  PartitionSolver solver(ctx_group);
+  // solver.solve();
+
   _group_configs.clear();
   for (int i = 0; i < ctxes.size(); ++i) {
     _group_configs.emplace_back(ctxes[i], i, ctx_group);
@@ -192,6 +202,131 @@ void DistGraph::Create(std::vector<Context> ctxes) {
   CHECK(_inst == nullptr);
   _inst = std::shared_ptr<DistGraph>(
       new DistGraph(ctxes), Release);
+}
+
+
+PartitionSolver::PartitionSolver(const std::vector<Context> &ctx_group) 
+  : _ctx_group(ctx_group) {
+  std::set<int> set;
+  for (auto&ctx : ctx_group) {
+    set.insert(ctx.device_id);
+  }
+  CHECK_EQ(set.size(), ctx_group.size());
+  CHECK_EQ(*set.rbegin() + 1, set.size());
+  DetectTopo();
+}
+
+void PartitionSolver::DetectTopo() {
+  // shared memory for transfer detect result
+  LinkTopoInfo *shared_data = (LinkTopoInfo*)mmap(NULL, sizeof(LinkTopoInfo), 
+    PROT_WRITE | PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
+  int pid = fork();
+  CHECK(pid != -1);
+  if (pid == 0) {
+    DetectTopo_child(shared_data);
+  } else {
+    int wstatus;
+    waitpid(pid, &wstatus, 0);
+    if (WEXITSTATUS(wstatus) != 0 || WIFSIGNALED(wstatus)) {
+      CHECK(false);
+    }
+    std::memcpy(&_topo_info, shared_data, sizeof(LinkTopoInfo));
+  }
+  munmap(shared_data, sizeof(LinkTopoInfo));
+
+  LOG(INFO) << "DetectTopo Done";
+}
+
+std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const {
+
+}
+
+void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
+  // 128M buffer for bandwidth test to detect backbone link
+  size_t nbytes = (1<<27);
+  IdType *buffers[kMaxDevice], *buffersD2D[kMaxDevice];
+  cudaStream_t stream[kMaxDevice];
+  for (int i = 0; i < _ctx_group.size(); i++) {
+    int device = _ctx_group[i].device_id;
+    CUDA_CALL(cudaSetDevice(device));
+    CUDA_CALL(cudaMalloc(&buffers[device], nbytes));
+    CUDA_CALL(cudaMalloc(&buffersD2D[device], nbytes));
+    CUDA_CALL(cudaStreamCreateWithFlags(&stream[device], cudaStreamNonBlocking));
+    for (int j = 0; j < _ctx_group.size(); j++) {
+      int peer = _ctx_group[j].device_id;
+      topo_info->bandwitdh_matrix[device][peer] = 0;
+      if (device == peer) {
+        topo_info->nvlink_matrix[device][peer] = 1;
+        continue;
+      }
+      int can_access = false;
+      CUDA_CALL(cudaDeviceCanAccessPeer(&can_access, device, peer));
+      if (!can_access) {
+        topo_info->nvlink_matrix[device][peer] = 0;
+      } else {
+        topo_info->nvlink_matrix[device][peer] = 1;
+      }
+    }
+  }
+  for (int i = 0; i < _ctx_group.size(); i++) {
+    int device = _ctx_group[i].device_id;
+    CUDA_CALL(cudaSetDevice(device));
+    CUDA_CALL(cudaMemcpyAsync(buffers[device], buffersD2D[device], nbytes, cudaMemcpyDefault, stream[device]));
+    CUDA_CALL(cudaStreamSynchronize(stream[device]));
+    for (int j = 0; j < _ctx_group.size(); j++) {
+      int peer = _ctx_group[j].device_id;
+      if (device != peer && topo_info->nvlink_matrix[device][peer]) {
+        CUDA_CALL(cudaDeviceEnablePeerAccess(peer, 0));
+      }
+    }
+    for (int j = 0; j < _ctx_group.size(); j++) {
+      int peer = _ctx_group[j].device_id;
+      if (topo_info->nvlink_matrix[device][peer]) {
+        Timer t0;
+        CUDA_CALL(cudaMemcpyAsync(buffers[device], buffersD2D[peer], nbytes, cudaMemcpyDefault, stream[device]));
+        CUDA_CALL(cudaStreamSynchronize(stream[device]));
+        auto sec = t0.Passed();
+        if (device == peer) {
+          topo_info->bandwitdh_matrix[device][peer] = 2 * nbytes / sec / 1e9;
+        } else {
+          topo_info->bandwitdh_matrix[device][peer] = nbytes / sec / 1e9;
+        }
+      }
+    }
+    for (int j = 0; j < _ctx_group.size(); j++) {
+      int peer = _ctx_group[j].device_id;
+      if (device != peer && topo_info->nvlink_matrix[device][peer]) {
+        CUDA_CALL(cudaDeviceDisablePeerAccess(peer));
+      }
+    }
+  }
+
+  // release resouce
+  for (int i = 0; i < _ctx_group.size(); i++) {
+    auto device = _ctx_group[i].device_id;
+    CUDA_CALL(cudaSetDevice(device));
+    CUDA_CALL(cudaStreamDestroy(stream[device]));
+    CUDA_CALL(cudaFree(buffers[device]));
+    CUDA_CALL(cudaFree(buffersD2D[device]));
+    for (int j = 0; j < _ctx_group.size(); j++) {
+      auto peer = _ctx_group[j].device_id;
+      if (device == peer)
+        continue;
+    }
+  }
+
+  std::stringstream ss;
+  ss << "Topology Detect Debug: \n";
+  for (int i = 0; i < _ctx_group.size(); i++) {
+    for (int j = 0; j < _ctx_group.size(); j++) {
+      ss << std::setw(8) << std::fixed << std::setprecision(1) << topo_info->bandwitdh_matrix[i][j] << " ";
+    }
+    ss << "\n";
+  }
+  LOG(INFO) << ss.str();
+
+  munmap(topo_info, sizeof(LinkTopoInfo));
+  exit(0);
 }
 
 }  // namespace cuda

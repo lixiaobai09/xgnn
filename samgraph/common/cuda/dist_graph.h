@@ -137,6 +137,29 @@ class DistGraph {
   static std::shared_ptr<DistGraph> _inst;
 };
 
+class PartitionSolver {
+ public:
+  struct GroupConfig{
+    Context ctx;
+    int part_id;
+    std::vector<Context> ctx_group;
+    GroupConfig(Context ctx_, int part_id_, std::vector<Context> group_)
+      : ctx(ctx_), part_id(part_id_), ctx_group(group_) {};
+  };
+
+  PartitionSolver(const std::vector<Context> &ctx_group);
+  std::vector<GroupConfig> solve() const;
+ private:
+  std::vector<Context> _ctx_group;
+  
+  struct LinkTopoInfo {
+    double bandwitdh_matrix[kMaxDevice][kMaxDevice];
+    int nvlink_matrix[kMaxDevice][kMaxDevice];
+  } _topo_info;
+  void DetectTopo();
+  void DetectTopo_child(LinkTopoInfo *topo_info);
+};
+
 } // cuda
 } // common
 } // namespace samgraph
