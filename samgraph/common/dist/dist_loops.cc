@@ -175,13 +175,26 @@ void DoGPUSample(TaskPtr task) {
                               task->key);
         break;
       case kRandomWalk:
-        CHECK_EQ(fanout, RunConfig::num_neighbor);
-        cuda::GPUSampleRandomWalk(
-            indptr, indices, input, num_input, RunConfig::random_walk_length,
-            RunConfig::random_walk_restart_prob, RunConfig::num_random_walk,
-            RunConfig::num_neighbor, out_src, out_dst, out_data, num_out,
-            frequency_hashmap, sampler_ctx, sample_stream, random_states,
-            task->key);
+        {
+          CHECK_EQ(fanout, RunConfig::num_neighbor);
+          if (RunConfig::use_dist_graph) {
+            cuda::GPUSampleRandomWalk<cuda::DeviceDistGraph>(
+              cuda::DistGraph::Get()->DeviceHandle(),
+              input, num_input, RunConfig::random_walk_length,
+              RunConfig::random_walk_restart_prob, RunConfig::num_random_walk,
+              RunConfig::num_neighbor, out_src, out_dst, out_data, num_out,
+              frequency_hashmap, sampler_ctx, sample_stream, random_states,
+              task->key);
+          } else {
+            cuda::GPUSampleRandomWalk<cuda::DeviceNormalGraph>(
+              cuda::DeviceNormalGraph(indptr, indices, num_node), 
+              input, num_input, RunConfig::random_walk_length,
+              RunConfig::random_walk_restart_prob, RunConfig::num_random_walk,
+              RunConfig::num_neighbor, out_src, out_dst, out_data, num_out,
+              frequency_hashmap, sampler_ctx, sample_stream, random_states,
+              task->key);
+          }
+        }
         break;
       case kWeightedKHopPrefix:
         cuda::GPUSampleWeightedKHopPrefix(indptr, indices, prob_prefix_table, input,
@@ -326,6 +339,7 @@ void DoGPUSample(TaskPtr task) {
   Profiler::Get().LogStep(task->key, kLogL1NumNode,
                           static_cast<double>(task->input_nodes->Shape()[0]));
   Profiler::Get().LogStep(task->key, kLogL1NumSample, total_num_samples);
+  Profiler::Get().LogEpochAdd(task->key, kLogEpochNumSample, total_num_samples);
   Profiler::Get().LogStepAdd(task->key, kLogL3RemapFillUniqueTime,
                              fill_unique_time);
 

@@ -40,8 +40,9 @@ namespace cuda {
 
 namespace {
 
+template <typename GraphType>
 __global__ void sample_random_walk(
-    const IdType *indptr, const IdType *indices, const IdType *input,
+    GraphType graph, const IdType *input,
     const size_t num_input, const size_t random_walk_length,
     const double restart_prob, const size_t num_random_walk, IdType *tmp_src,
     IdType *tmp_dst, curandState *random_states, size_t num_random_states) {
@@ -79,8 +80,10 @@ __global__ void sample_random_walk(
         if (node == Constant::kEmptyKey) {
           tmp_src[pos] = Constant::kEmptyKey;
         } else {
-          const IdType off = indptr[node];
-          const IdType len = indptr[node + 1] - indptr[node];
+          // const IdType off = indptr[node];
+          // const IdType len = indptr[node + 1] - indptr[node];
+          const IdType *edges = graph[node];
+          const IdType len = graph.NumEdge(node);
 
           if (len == 0) {
             tmp_src[pos] = Constant::kEmptyKey;
@@ -88,8 +91,8 @@ __global__ void sample_random_walk(
           } else {
             size_t k = curand(&local_state) % len;
             tmp_src[pos] = start_node;
-            tmp_dst[pos] = indices[off + k];
-            node = indices[off + k];
+            tmp_dst[pos] = edges[k];
+            node = edges[k];
 
             // terminate
             if (curand_uniform_double(&local_state) < restart_prob) {
@@ -110,7 +113,8 @@ __global__ void sample_random_walk(
 
 }  // namespace
 
-void GPUSampleRandomWalk(const IdType *indptr, const IdType *indices,
+template <typename GraphType>
+void GPUSampleRandomWalk(GraphType graph,
                          const IdType *input, const size_t num_input,
                          const size_t random_walk_length,
                          const double random_walk_restart_prob,
@@ -137,8 +141,8 @@ void GPUSampleRandomWalk(const IdType *indptr, const IdType *indices,
   }
   const dim3 grid(RoundUpDiv(num_input, static_cast<size_t>(block.y)));
 
-  sample_random_walk<<<grid, block, 0, cu_stream>>>(
-      indptr, indices, input, num_input, random_walk_length,
+  sample_random_walk<GraphType> <<<grid, block, 0, cu_stream>>>(
+      graph, input, num_input, random_walk_length,
       random_walk_restart_prob, num_random_walk, tmp_src, tmp_dst,
       random_states->GetStates(), random_states->NumStates());
   sampler_device->StreamSync(ctx, stream);
@@ -159,6 +163,29 @@ void GPUSampleRandomWalk(const IdType *indptr, const IdType *indices,
                              random_walk_sampling_time);
   Profiler::Get().LogStepAdd(task_key, kLogL3RandomWalkTopKTime, topk_time);
 }
+
+template
+void GPUSampleRandomWalk<DeviceDistGraph> (DeviceDistGraph graph,
+                         const IdType *input, const size_t num_input,
+                         const size_t random_walk_length,
+                         const double random_walk_restart_prob,
+                         const size_t num_random_walk, const size_t K,
+                         IdType *out_src, IdType *out_dst, IdType *out_data,
+                         size_t *num_out, FrequencyHashmap *frequency_hashmap,
+                         Context ctx, StreamHandle stream,
+                         GPURandomStates *random_states, uint64_t task_key);
+
+template
+void GPUSampleRandomWalk<DeviceNormalGraph> (DeviceNormalGraph graph,
+                         const IdType *input, const size_t num_input,
+                         const size_t random_walk_length,
+                         const double random_walk_restart_prob,
+                         const size_t num_random_walk, const size_t K,
+                         IdType *out_src, IdType *out_dst, IdType *out_data,
+                         size_t *num_out, FrequencyHashmap *frequency_hashmap,
+                         Context ctx, StreamHandle stream,
+                         GPURandomStates *random_states, uint64_t task_key);
+
 
 }  // namespace cuda
 }  // namespace common
