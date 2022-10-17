@@ -164,6 +164,8 @@ class PartitionSolver {
 
   IdType FindPalcement(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
     IdType device, IdType part) const ;
+  IdType ChoosePeer(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice], 
+    IdType device, std::vector<IdType> peers, bool exist) const;
 };
 
 } // cuda
