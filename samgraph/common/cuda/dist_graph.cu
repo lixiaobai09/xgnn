@@ -7,6 +7,7 @@
 #include <cstring>
 #include <iomanip>
 #include <set>
+#include <algorithm>
 
 #include "../device.h"
 #include "../timer.h"
@@ -155,7 +156,10 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
   std::vector<Context> ctx_group = ctxes;
 
   PartitionSolver solver(ctx_group);
-  // solver.solve();
+  auto configs = solver.solve();
+  for (auto &config : configs) {
+    LOG(INFO) << config;
+  }
 
   _group_configs.clear();
   for (int i = 0; i < ctxes.size(); ++i) {
@@ -237,8 +241,94 @@ void PartitionSolver::DetectTopo() {
   LOG(INFO) << "DetectTopo Done";
 }
 
-std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const {
+std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
+  std::set<IdType> parts[kMaxDevice];
+  IdType access_matrix[kMaxDevice][kMaxDevice] = {0};
+  IdType access_cnt[kMaxDevice][kMaxDevice] = {0};
+  
+  for (int i = 0; i < _ctx_group.size(); i++) {
+    int device = _ctx_group[i].device_id;
+    parts[device].insert(device);
+  }
+  
+  auto neighborParts = [&](IdType device, IdType part) -> std::vector<IdType> {
+    std::vector<IdType> peer_vec;
+    for (int peer = 0; peer < this->_ctx_group.size(); peer++) {
+      if (this->_topo_info.nvlink_matrix[device][peer]) {
+        if (parts[peer].find(part) != parts[peer].end()) {
+          peer_vec.push_back(peer);
+        } 
+      }
+    }
+    return peer_vec;
+  };
 
+  for (int device = 0; device < _ctx_group.size(); device++) {
+    std::vector<IdType> miss_parts;
+    // 1. place partitions across neighbor
+    for (int part = 0; part < _ctx_group.size(); part++) {
+      if (neighborParts(device, part).empty())
+        miss_parts.push_back(part);
+    }
+    for (auto part : miss_parts) {
+      IdType rep_pos = FindPalcement(parts, access_cnt, device, part);
+      parts[rep_pos].insert(part);
+    }
+    // 2. select link based on bandwidth
+    for (int part = 0; part < _ctx_group.size(); part++) {
+      auto peer_vec = neighborParts(device, part);
+      CHECK(!peer_vec.empty());
+      double max_bw = 0;
+      double max_peer = -1;
+      for (auto peer : peer_vec) {
+        double link_bw = _topo_info.bandwitdh_matrix[device][peer];
+        IdType cnt = access_cnt[device][peer];
+        CHECK(_topo_info.bandwitdh_matrix[device][peer] > 0);
+        double bw = link_bw / (1 + cnt);
+        if (bw > max_bw) {
+          max_bw = bw;
+          max_peer = peer;
+        }
+      }
+      CHECK(max_peer != -1);
+      access_matrix[device][part] = max_peer;
+      access_cnt[device][part]++;
+    }
+  }
+  std::vector<PartitionSolver::GroupConfig> configs;
+  for (int i = 0; i < _ctx_group.size(); i++) {
+    auto ctx = _ctx_group[i];
+    IdType device = ctx.device_id;
+    std::vector<IdType> part_ids(parts[device].begin(), parts[device].end());
+    std::vector<Context> group;
+    for (int j = 0; j < _ctx_group.size(); j++) {
+      group.push_back(GPU(access_matrix[device][j]));
+    }
+    configs.emplace_back(ctx, part_ids, group);
+  }
+  return configs;
+}
+
+IdType PartitionSolver::FindPalcement(
+  const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
+  IdType device, IdType part) const {
+  std::vector<std::pair<IdType, double>> weight;
+  std::vector<IdType> peers;
+  for (IdType peer = 0; peer < _ctx_group.size(); peer++) {
+    if (_topo_info.nvlink_matrix[device][peer]) {
+      double bw = _topo_info.bandwitdh_matrix[device][peer] / (1 + access_cnt[device][peer]);
+      weight.push_back({parts[peer].size(), bw});
+      peers.push_back(peer);
+    }
+  }
+  CHECK(peers.size() > 0);
+  std::sort(peers.begin(), peers.end(), [&](IdType x, IdType y) {
+    if (weight[x].first != weight[y].first)
+      return weight[x].first < weight[y].first;
+    else
+      return weight[x].second > weight[y].second;
+  });
+  return peers.front();
 }
 
 void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
@@ -327,6 +417,19 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
 
   munmap(topo_info, sizeof(LinkTopoInfo));
   exit(0);
+}
+
+std::ostream& operator<<(std::ostream &os, const PartitionSolver::GroupConfig &config) {
+  std::stringstream part_ss;
+  std::stringstream peer_ss;
+  for (auto part : config.part_ids)
+    part_ss << part << " ";
+  for (auto &ctx : config.ctx_group)
+    peer_ss << ctx.device_id << " ";
+  os << "GPU[" << config.ctx.device_id << "]"
+     << " part: [ " << part_ss.str() << "]"
+     << " peer: [ " << peer_ss.str() << "]";
+  return os;
 }
 
 }  // namespace cuda

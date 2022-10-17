@@ -21,6 +21,8 @@
 #include <memory>
 #include <cassert>
 #include <cuda_runtime_api.h>
+#include <set>
+#include <iostream>
 
 #include "../common.h"
 
@@ -141,14 +143,15 @@ class PartitionSolver {
  public:
   struct GroupConfig{
     Context ctx;
-    int part_id;
+    std::vector<IdType> part_ids;
     std::vector<Context> ctx_group;
-    GroupConfig(Context ctx_, int part_id_, std::vector<Context> group_)
-      : ctx(ctx_), part_id(part_id_), ctx_group(group_) {};
+    GroupConfig(Context ctx, const std::vector<IdType> &part_ids, const std::vector<Context> &group)
+      : ctx(ctx), part_ids(part_ids), ctx_group(group) {};
+    friend std::ostream& operator<<(std::ostream &os, const GroupConfig &config);
   };
 
   PartitionSolver(const std::vector<Context> &ctx_group);
-  std::vector<GroupConfig> solve() const;
+  std::vector<GroupConfig> solve() const ;
  private:
   std::vector<Context> _ctx_group;
   
@@ -158,6 +161,9 @@ class PartitionSolver {
   } _topo_info;
   void DetectTopo();
   void DetectTopo_child(LinkTopoInfo *topo_info);
+
+  IdType FindPalcement(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
+    IdType device, IdType part) const ;
 };
 
 } // cuda
