@@ -12,22 +12,16 @@ namespace cuda {
 
 std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
 
-void DistGraph::_DatasetPartition(const Dataset *dataset, int sampler_id) {
+void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
+    IdType part_id, IdType num_part) {
   auto indptr_data = dataset->indptr->CPtr<IdType>();
   auto indices_data = dataset->indices->CPtr<IdType>();
-  auto ctx = _group_configs[sampler_id].ctx;
   IdType num_node = dataset->num_node;
-  IdType num_part = _group_configs[sampler_id].ctx_group.size();
-  IdType part_id = _group_configs[sampler_id].part_id;
   IdType part_edge_count = 0;
   for (IdType i = part_id; i < num_node; i += num_part) {
     IdType num_edge = (indptr_data[i + 1] - indptr_data[i]);
     part_edge_count += num_edge;
   }
-  _part_indptr.clear();
-  _part_indptr.resize(num_part, nullptr);
-  _part_indices.clear();
-  _part_indices.resize(num_part, nullptr);
 
   IdType indptr_size = (num_node / num_part +
       (part_id < num_node % num_part? 1 : 0) + 1);
@@ -59,37 +53,45 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
     Context sampler_ctx) {
 
   CHECK(sampler_ctx == _group_configs[sampler_id].ctx);
-
   _sampler_id = sampler_id;
-  _DatasetPartition(dataset, sampler_id);
 
+  auto part_ids = _group_configs[sampler_id].part_ids;
   auto ctx_group = _group_configs[sampler_id].ctx_group;
-  IdType part_id = _group_configs[sampler_id].part_id;
   IdType num_part = ctx_group.size();
+  _part_indptr.clear();
+  _part_indptr.resize(num_part, nullptr);
+  _part_indices.clear();
+  _part_indices.resize(num_part, nullptr);
+
+  for (IdType part_id : part_ids) {
+    _DatasetPartition(dataset, sampler_ctx, part_id, num_part);
+  }
 
   auto DataIpcShare = [&](std::vector<TensorPtr> &part_data,
       std::vector<size_t> part_size_vec,
       std::string name) {
 
     {
-      // share self data to others
-      CHECK(sampler_ctx == part_data[part_id]->Ctx());
-      auto shared_data = part_data[part_id]->CPtr<IdType>();
-      cudaIpcMemHandle_t &mem_handle =
-        _shared_data->mem_handle[sampler_ctx.device_id];
-      CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
+      for (IdType part_id : part_ids) {
+        // share self data to others
+        CHECK(sampler_ctx == part_data[part_id]->Ctx());
+        CHECK(part_size_vec[part_id] == part_data[part_id]->Shape()[0]);
+        auto shared_data = part_data[part_id]->CPtr<IdType>();
+        cudaIpcMemHandle_t &mem_handle =
+          _shared_data->mem_handle[sampler_ctx.device_id][part_id];
+        CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
+      }
     }
 
     _Barrier();
 
     // receive data from others
     for (int i = 0; i < num_part; ++i) {
-      if (i == part_id) {
+      if (part_data[i] != nullptr) {
         continue;
       }
-      CHECK(part_data[i] == nullptr);
       auto ctx = ctx_group[i];
-      cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id];
+      cudaIpcMemHandle_t &mem_handle = _shared_data->mem_handle[ctx.device_id][i];
       void *ptr;
       CUDA_CALL(cudaIpcOpenMemHandle(
             &ptr, mem_handle, cudaIpcMemLazyEnablePeerAccess));
@@ -112,8 +114,8 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   auto indptr_data = dataset->indptr->CPtr<IdType>();
   for (IdType i = 0; i < num_node; ++i) {
     IdType num_edge = indptr_data[i + 1] - indptr_data[i];
-    IdType part_id = (i % num_part);
-    part_size_vec[part_id] += num_edge;
+    IdType tmp_part_id = (i % num_part);
+    part_size_vec[tmp_part_id] += num_edge;
   }
   DataIpcShare(_part_indices, part_size_vec, "dataset part indices");
 
@@ -149,7 +151,8 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
   std::vector<Context> ctx_group = ctxes;
   _group_configs.clear();
   for (int i = 0; i < ctxes.size(); ++i) {
-    _group_configs.emplace_back(ctxes[i], i, ctx_group);
+    std::vector<int> part_ids = {i};
+    _group_configs.emplace_back(ctxes[i], part_ids, ctx_group);
   }
 
 

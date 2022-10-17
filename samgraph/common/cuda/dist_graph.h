@@ -103,10 +103,10 @@ class DistGraph {
 
   struct GroupConfig{
     Context ctx;
-    int part_id;
+    std::vector<int> part_ids;
     std::vector<Context> ctx_group;
-    GroupConfig(Context ctx_, int part_id_, std::vector<Context> group_)
-      : ctx(ctx_), part_id(part_id_), ctx_group(group_) {};
+    GroupConfig(Context ctx_, std::vector<int> part_ids_, std::vector<Context> group_)
+      : ctx(ctx_), part_ids(part_ids_), ctx_group(group_) {};
   };
 
  private:
@@ -117,7 +117,8 @@ class DistGraph {
 
   DistGraph(std::vector<Context> ctxes);
   void _Barrier();
-  void _DatasetPartition(const Dataset *dataset, int sampler_id);
+  void _DatasetPartition(const Dataset *dataset, Context ctx,
+    IdType part_id, IdType num_part);
 
   int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
@@ -130,7 +131,7 @@ class DistGraph {
 
   struct SharedData {
     pthread_barrier_t barrier;
-    cudaIpcMemHandle_t mem_handle[kMaxDevice];
+    cudaIpcMemHandle_t mem_handle[kMaxDevice][kMaxDevice];
   };
   SharedData *_shared_data;
 
