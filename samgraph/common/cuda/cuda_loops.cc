@@ -138,13 +138,20 @@ void DoGPUSample(TaskPtr task) {
                               task->key);
         break;
       case kRandomWalk:
-        CHECK_EQ(fanout, RunConfig::num_neighbor);
-        GPUSampleRandomWalk(
-            indptr, indices, input, num_input, RunConfig::random_walk_length,
-            RunConfig::random_walk_restart_prob, RunConfig::num_random_walk,
-            RunConfig::num_neighbor, out_src, out_dst, out_data, num_out,
-            frequency_hashmap, sampler_ctx, sample_stream, random_states,
-            task->key);
+        {
+          CHECK_EQ(fanout, RunConfig::num_neighbor);
+          if (RunConfig::use_dist_graph) {
+            LOG(FATAL) << "DistGraph only in dist mode";
+          } else {
+            GPUSampleRandomWalk<DeviceNormalGraph>(
+                DeviceNormalGraph(indptr, indices, dataset->num_node), 
+                input, num_input, RunConfig::random_walk_length,
+                RunConfig::random_walk_restart_prob, RunConfig::num_random_walk,
+                RunConfig::num_neighbor, out_src, out_dst, out_data, num_out,
+                frequency_hashmap, sampler_ctx, sample_stream, random_states,
+                task->key);
+          }
+        }
         break;
       case kWeightedKHopPrefix:
         GPUSampleWeightedKHopPrefix(indptr, indices, prob_prefix_table, input,

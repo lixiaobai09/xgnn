@@ -150,6 +150,10 @@ _init_log_val = [0]
 kLogInitL1Common                    = _get_next_enum_val(_init_log_val)
 kLogInitL1Sampler                   = _get_next_enum_val(_init_log_val)
 kLogInitL1Trainer                   = _get_next_enum_val(_init_log_val)
+# L1 Memory
+kLogInitL1GraphMemory               = _get_next_enum_val(_init_log_val)
+kLogInitL1FeatMemory                = _get_next_enum_val(_init_log_val)
+kLogInitL1WorkspaceTotalMemory      = _get_next_enum_val(_init_log_val)
 # L2
 kLogInitL2LoadDataset               = _get_next_enum_val(_init_log_val)
 kLogInitL2DistQueue                 = _get_next_enum_val(_init_log_val)
@@ -206,7 +210,6 @@ kLogL2FeatCopyTime   = _get_next_enum_val(_step_log_val)
 kLogL2CacheCopyTime  = _get_next_enum_val(_step_log_val)
 # Step L3 Log
 kLogL3KHopSampleCooTime          = _get_next_enum_val(_step_log_val)
-kLogL3KHopSampleKernelTime       = _get_next_enum_val(_step_log_val)
 kLogL3KHopSampleSortCooTime      = _get_next_enum_val(_step_log_val)
 kLogL3KHopSampleCountEdgeTime    = _get_next_enum_val(_step_log_val)
 kLogL3KHopSampleCompactEdgesTime = _get_next_enum_val(_step_log_val)
@@ -240,13 +243,13 @@ kLogEpochCoreSampleTime              = _get_next_enum_val(_epoch_log_val)
 kLogEpochSampleCooTime               = _get_next_enum_val(_epoch_log_val)
 kLogEpochIdRemapTime                 = _get_next_enum_val(_epoch_log_val)
 kLogEpochShuffleTime                 = _get_next_enum_val(_epoch_log_val)
-kLogEpochSampleKernelTime            = _get_next_enum_val(_epoch_log_val)
 kLogEpochCopyTime                    = _get_next_enum_val(_epoch_log_val)
 kLogEpochConvertTime                 = _get_next_enum_val(_epoch_log_val)
 kLogEpochTrainTime                   = _get_next_enum_val(_epoch_log_val)
 kLogEpochTotalTime                   = _get_next_enum_val(_epoch_log_val)
 kLogEpochFeatureBytes                = _get_next_enum_val(_epoch_log_val)
 kLogEpochMissBytes                   = _get_next_enum_val(_epoch_log_val)
+kLogEpochNumSample                   = _get_next_enum_val(_epoch_log_val)
 
 _step_event_val = [0]
 

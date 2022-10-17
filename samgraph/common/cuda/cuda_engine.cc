@@ -85,12 +85,13 @@ void GPUEngine::Init() {
   LOG_MEM_USAGE(WARNING, "before load dataset");
   double time_cuda_context = t_cuda_context.Passed();
 
+  size_t before_load_graph = get_cuda_used(_sampler_ctx);
+
   Timer tl;
   LoadGraphDataset();
   double time_load_graph_dataset = tl.Passed();
   LOG_MEM_USAGE(INFO, "after load dataset");
-
-
+  size_t after_load_graph = get_cuda_used(_sampler_ctx);
 
   // Create CUDA streams
   Timer t_create_stream;
@@ -195,6 +196,8 @@ void GPUEngine::Init() {
 
   Profiler::Get().LogInit(kLogInitL3InternalStateCreateCtx, time_cuda_context);
   Profiler::Get().LogInit(kLogInitL3InternalStateCreateStream, time_create_stream);
+
+  Profiler::Get().LogInit(kLogInitL1GraphMemory, after_load_graph - before_load_graph);
 
   LOG_MEM_USAGE(WARNING, "after build cache states");
 
@@ -315,6 +318,10 @@ void GPUEngine::Start() {
 
 void GPUEngine::Shutdown() {
   LOG_MEM_USAGE(WARNING, "end of train");
+  {
+    auto device = Device::Get(_sampler_ctx);
+    Profiler::Get().LogInit(kLogInitL1WorkspaceTotalMemory, device->TotalSize(_sampler_ctx));
+  }
   if (_should_shutdown) {
     return;
   }

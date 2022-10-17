@@ -27,6 +27,7 @@
 #include "../run_config.h"
 #include "../timer.h"
 #include "cuda_cache_manager.h"
+#include "../profiler.h"
 
 namespace samgraph {
 namespace common {
@@ -86,6 +87,7 @@ GPUCacheManager::GPUCacheManager(Context sampler_ctx, Context trainer_ctx,
   void *tmp_cpu_data = cpu_device->AllocDataSpace(CPU(), _cache_nbytes);
   _trainer_cache_data =
       trainer_gpu_device->AllocDataSpace(_trainer_ctx, _cache_nbytes);
+Profiler::Get().LogInit(kLogInitL1FeatMemory, _cache_nbytes);
 
   // 1. Initialize the cpu hashtable
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
