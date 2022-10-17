@@ -245,10 +245,13 @@ std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
   std::set<IdType> parts[kMaxDevice];
   IdType access_matrix[kMaxDevice][kMaxDevice] = {0};
   IdType access_cnt[kMaxDevice][kMaxDevice] = {0};
+  std::memset(access_matrix, -1, sizeof(access_matrix));
   
   for (int i = 0; i < _ctx_group.size(); i++) {
     int device = _ctx_group[i].device_id;
     parts[device].insert(device);
+    access_matrix[device][device] = device;
+    access_cnt[device][device]++;
   }
   
   auto neighborParts = [&](IdType device, IdType part) -> std::vector<IdType> {
@@ -265,34 +268,30 @@ std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
 
   for (int device = 0; device < _ctx_group.size(); device++) {
     std::vector<IdType> miss_parts;
-    // 1. place partitions across neighbor
     for (int part = 0; part < _ctx_group.size(); part++) {
-      if (neighborParts(device, part).empty())
+      auto peers = neighborParts(device, part);
+      if (access_matrix[device][part] != -1)
+        continue;
+      {
+        std::stringstream ss;
+        for (auto peer : peers) ss << peer << " ";
+        if (peers.empty()) ss << "NULL";
+        LOG(DEBUG) << "[" << device << ", " << part << "] " << ss.str();
+      }
+      if (peers.empty()) {
         miss_parts.push_back(part);
+      } else {
+        auto peer = ChoosePeer(parts, access_cnt, device, peers, true);
+        access_cnt[device][peer]++;
+        access_matrix[device][part] = peer;
+      }
     }
     for (auto part : miss_parts) {
-      IdType rep_pos = FindPalcement(parts, access_cnt, device, part);
-      parts[rep_pos].insert(part);
-    }
-    // 2. select link based on bandwidth
-    for (int part = 0; part < _ctx_group.size(); part++) {
-      auto peer_vec = neighborParts(device, part);
-      CHECK(!peer_vec.empty());
-      double max_bw = 0;
-      double max_peer = -1;
-      for (auto peer : peer_vec) {
-        double link_bw = _topo_info.bandwitdh_matrix[device][peer];
-        IdType cnt = access_cnt[device][peer];
-        CHECK(_topo_info.bandwitdh_matrix[device][peer] > 0);
-        double bw = link_bw / (1 + cnt);
-        if (bw > max_bw) {
-          max_bw = bw;
-          max_peer = peer;
-        }
-      }
-      CHECK(max_peer != -1);
-      access_matrix[device][part] = max_peer;
-      access_cnt[device][part]++;
+      IdType rep_peer = FindPalcement(parts, access_cnt, device, part);
+      LOG(DEBUG) << device << " place " << part << " into " << rep_peer;
+      parts[rep_peer].insert(part);
+      access_cnt[device][rep_peer]++;
+      access_matrix[device][part] = rep_peer;
     }
   }
   std::vector<PartitionSolver::GroupConfig> configs;
@@ -312,23 +311,36 @@ std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
 IdType PartitionSolver::FindPalcement(
   const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
   IdType device, IdType part) const {
-  std::vector<std::pair<IdType, double>> weight;
   std::vector<IdType> peers;
   for (IdType peer = 0; peer < _ctx_group.size(); peer++) {
     if (_topo_info.nvlink_matrix[device][peer]) {
-      double bw = _topo_info.bandwitdh_matrix[device][peer] / (1 + access_cnt[device][peer]);
-      weight.push_back({parts[peer].size(), bw});
       peers.push_back(peer);
     }
   }
   CHECK(peers.size() > 0);
-  std::sort(peers.begin(), peers.end(), [&](IdType x, IdType y) {
-    if (weight[x].first != weight[y].first)
-      return weight[x].first < weight[y].first;
-    else
-      return weight[x].second > weight[y].second;
+  return ChoosePeer(parts, access_cnt, device, peers, false);
+}
+
+IdType PartitionSolver::ChoosePeer(
+  const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
+  IdType device, std::vector<IdType> peers, bool exist) const {
+  if (peers.empty()) {
+    return -1;
+  }
+  std::vector<std::tuple<IdType, IdType, double>> weight;
+  for (auto peer : peers) {
+    double bw = _topo_info.bandwitdh_matrix[device][peer];
+    bw /= access_cnt[device][peer] + (exist ? 0 : 1);
+    weight.push_back({peer, parts[peer].size(), bw});
+  }
+  std::sort(weight.begin(), weight.end(), [](auto x, auto y) {
+    if (std::get<1>(x) != std::get<1>(y)) {
+      return std::get<1>(x) < std::get<1>(y);
+    } else {
+      return std::get<2>(x) > std::get<2>(y);
+    }
   });
-  return peers.front();
+  return std::get<0>(weight.front());
 }
 
 void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
