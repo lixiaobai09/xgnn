@@ -333,8 +333,8 @@ IdType PartitionSolver::ChoosePeer(
     bw /= access_cnt[device][peer] + (exist ? 0 : 1);
     weight.push_back({peer, parts[peer].size(), bw});
   }
-  std::sort(weight.begin(), weight.end(), [](auto x, auto y) {
-    if (std::get<1>(x) != std::get<1>(y)) {
+  std::sort(weight.begin(), weight.end(), [&](auto x, auto y) {
+    if (!exist && std::get<1>(x) != std::get<1>(y)) {
       return std::get<1>(x) < std::get<1>(y);
     } else {
       return std::get<2>(x) > std::get<2>(y);
