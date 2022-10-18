@@ -21,6 +21,8 @@
 #include <memory>
 #include <cassert>
 #include <cuda_runtime_api.h>
+#include <set>
+#include <iostream>
 
 #include "../common.h"
 
@@ -136,6 +138,35 @@ class DistGraph {
   SharedData *_shared_data;
 
   static std::shared_ptr<DistGraph> _inst;
+};
+
+class PartitionSolver {
+ public:
+  struct GroupConfig{
+    Context ctx;
+    std::vector<IdType> part_ids;
+    std::vector<Context> ctx_group;
+    GroupConfig(Context ctx, const std::vector<IdType> &part_ids, const std::vector<Context> &group)
+      : ctx(ctx), part_ids(part_ids), ctx_group(group) {};
+    friend std::ostream& operator<<(std::ostream &os, const GroupConfig &config);
+  };
+
+  PartitionSolver(const std::vector<Context> &ctx_group);
+  std::vector<GroupConfig> solve() const ;
+ private:
+  std::vector<Context> _ctx_group;
+  
+  struct LinkTopoInfo {
+    double bandwitdh_matrix[kMaxDevice][kMaxDevice];
+    int nvlink_matrix[kMaxDevice][kMaxDevice];
+  } _topo_info;
+  void DetectTopo();
+  void DetectTopo_child(LinkTopoInfo *topo_info);
+
+  IdType FindPalcement(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
+    IdType device, IdType part) const ;
+  IdType ChoosePeer(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice], 
+    IdType device, std::vector<IdType> peers, bool exist) const;
 };
 
 } // cuda
