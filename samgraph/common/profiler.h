@@ -32,6 +32,10 @@ enum LogInitItem {
   kLogInitL1Common = 0,
   kLogInitL1Sampler, // pinmem, copy graph, *shuff, *hashtable, *random, *freq, queue, presmaple, cachetable
   kLogInitL1Trainer,
+  // L1 Memory
+  kLogInitL1GraphMemory,
+  kLogInitL1FeatMemory,
+  kLogInitL1WorkspaceTotalMemory,
   // L2
   kLogInitL2LoadDataset,
   kLogInitL2DistQueue,
@@ -88,7 +92,6 @@ enum LogStepItem {
   kLogL2CacheCopyTime,
   // L3
   kLogL3KHopSampleCooTime,
-  kLogL3KHopSampleKernelTime,
   kLogL3KHopSampleSortCooTime,
   kLogL3KHopSampleCountEdgeTime,
   kLogL3KHopSampleCompactEdgesTime,
@@ -124,13 +127,14 @@ enum LogEpochItem {
   kLogEpochSampleCooTime,
   kLogEpochIdRemapTime,
   kLogEpochShuffleTime,
-  kLogEpochSampleKernelTime,
   kLogEpochCopyTime,
   kLogEpochConvertTime,
   kLogEpochTrainTime,
   kLogEpochTotalTime,
   kLogEpochFeatureBytes,
   kLogEpochMissBytes,
+  kLogEpochNumSample,
+
   kNumLogEpochItems,
 };
 
