@@ -269,9 +269,9 @@ std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
   for (int device = 0; device < _ctx_group.size(); device++) {
     std::vector<IdType> miss_parts;
     for (int part = 0; part < _ctx_group.size(); part++) {
-      auto peers = neighborParts(device, part);
       if (access_matrix[device][part] != -1)
         continue;
+      auto peers = neighborParts(device, part);
       {
         std::stringstream ss;
         for (auto peer : peers) ss << peer << " ";
@@ -410,11 +410,6 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
     CUDA_CALL(cudaStreamDestroy(stream[device]));
     CUDA_CALL(cudaFree(buffers[device]));
     CUDA_CALL(cudaFree(buffersD2D[device]));
-    for (int j = 0; j < _ctx_group.size(); j++) {
-      auto peer = _ctx_group[j].device_id;
-      if (device == peer)
-        continue;
-    }
   }
 
   std::stringstream ss;
