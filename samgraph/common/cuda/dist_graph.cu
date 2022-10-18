@@ -153,22 +153,12 @@ DeviceDistGraph DistGraph::DeviceHandle() const {
 }
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
-  // TODO: from ctxes to get graph parts configs
-  // bala bala ...
-  std::vector<Context> ctx_group = ctxes;
 
-  PartitionSolver solver(ctx_group);
-  auto configs = solver.solve();
-  for (auto &config : configs) {
+  PartitionSolver solver(ctxes);
+  _group_configs = solver.solve();
+  for (auto &config : _group_configs) {
     LOG(INFO) << config;
   }
-
-  _group_configs.clear();
-  for (int i = 0; i < ctxes.size(); ++i) {
-    std::vector<int> part_ids = {i};
-    _group_configs.emplace_back(ctxes[i], part_ids, ctx_group);
-  }
-
 
   int num_worker = ctxes.size();
   _sampler_id = static_cast<int>(Constant::kEmptyKey);
@@ -212,13 +202,13 @@ void DistGraph::Create(std::vector<Context> ctxes) {
 }
 
 
-PartitionSolver::PartitionSolver(const std::vector<Context> &ctx_group) 
-  : _ctx_group(ctx_group) {
+PartitionSolver::PartitionSolver(const std::vector<Context> &ctxes)
+  : _ctxes(ctxes) {
   std::set<int> set;
-  for (auto&ctx : ctx_group) {
+  for (auto&ctx : ctxes) {
     set.insert(ctx.device_id);
   }
-  CHECK_EQ(set.size(), ctx_group.size());
+  CHECK_EQ(set.size(), ctxes.size());
   CHECK_EQ(*set.rbegin() + 1, set.size());
   DetectTopo();
 }
@@ -244,14 +234,14 @@ void PartitionSolver::DetectTopo() {
   LOG(INFO) << "DetectTopo Done";
 }
 
-std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
+std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
   std::set<IdType> parts[kMaxDevice];
   IdType access_matrix[kMaxDevice][kMaxDevice] = {0};
   IdType access_cnt[kMaxDevice][kMaxDevice] = {0};
   std::memset(access_matrix, -1, sizeof(access_matrix));
   
-  for (int i = 0; i < _ctx_group.size(); i++) {
-    int device = _ctx_group[i].device_id;
+  for (int i = 0; i < _ctxes.size(); i++) {
+    int device = _ctxes[i].device_id;
     parts[device].insert(device);
     access_matrix[device][device] = device;
     access_cnt[device][device]++;
@@ -259,7 +249,7 @@ std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
   
   auto neighborParts = [&](IdType device, IdType part) -> std::vector<IdType> {
     std::vector<IdType> peer_vec;
-    for (int peer = 0; peer < this->_ctx_group.size(); peer++) {
+    for (int peer = 0; peer < this->_ctxes.size(); peer++) {
       if (this->_topo_info.nvlink_matrix[device][peer]) {
         if (parts[peer].find(part) != parts[peer].end()) {
           peer_vec.push_back(peer);
@@ -269,10 +259,10 @@ std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
     return peer_vec;
   };
 
-  for (int device = 0; device < _ctx_group.size(); device++) {
+  for (int device = 0; device < _ctxes.size(); device++) {
     std::vector<IdType> miss_parts;
-    for (int part = 0; part < _ctx_group.size(); part++) {
-      if (access_matrix[device][part] != -1)
+    for (int part = 0; part < _ctxes.size(); part++) {
+      if (access_matrix[device][part] != static_cast<IdType>(-1))
         continue;
       auto peers = neighborParts(device, part);
       {
@@ -297,13 +287,13 @@ std::vector<PartitionSolver::GroupConfig> PartitionSolver::solve() const  {
       access_matrix[device][part] = rep_peer;
     }
   }
-  std::vector<PartitionSolver::GroupConfig> configs;
-  for (int i = 0; i < _ctx_group.size(); i++) {
-    auto ctx = _ctx_group[i];
+  std::vector<DistGraph::GroupConfig> configs;
+  for (int i = 0; i < _ctxes.size(); i++) {
+    auto ctx = _ctxes[i];
     IdType device = ctx.device_id;
     std::vector<IdType> part_ids(parts[device].begin(), parts[device].end());
     std::vector<Context> group;
-    for (int j = 0; j < _ctx_group.size(); j++) {
+    for (int j = 0; j < _ctxes.size(); j++) {
       group.push_back(GPU(access_matrix[device][j]));
     }
     configs.emplace_back(ctx, part_ids, group);
@@ -315,7 +305,7 @@ IdType PartitionSolver::FindPalcement(
   const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
   IdType device, IdType part) const {
   std::vector<IdType> peers;
-  for (IdType peer = 0; peer < _ctx_group.size(); peer++) {
+  for (IdType peer = 0; peer < _ctxes.size(); peer++) {
     if (_topo_info.nvlink_matrix[device][peer]) {
       peers.push_back(peer);
     }
@@ -328,7 +318,7 @@ IdType PartitionSolver::ChoosePeer(
   const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
   IdType device, std::vector<IdType> peers, bool exist) const {
   if (peers.empty()) {
-    return -1;
+    return static_cast<IdType>(-1);
   }
   std::vector<std::tuple<IdType, IdType, double>> weight;
   for (auto peer : peers) {
@@ -351,14 +341,14 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
   size_t nbytes = (1<<27);
   IdType *buffers[kMaxDevice], *buffersD2D[kMaxDevice];
   cudaStream_t stream[kMaxDevice];
-  for (int i = 0; i < _ctx_group.size(); i++) {
-    int device = _ctx_group[i].device_id;
+  for (int i = 0; i < _ctxes.size(); i++) {
+    int device = _ctxes[i].device_id;
     CUDA_CALL(cudaSetDevice(device));
     CUDA_CALL(cudaMalloc(&buffers[device], nbytes));
     CUDA_CALL(cudaMalloc(&buffersD2D[device], nbytes));
     CUDA_CALL(cudaStreamCreateWithFlags(&stream[device], cudaStreamNonBlocking));
-    for (int j = 0; j < _ctx_group.size(); j++) {
-      int peer = _ctx_group[j].device_id;
+    for (int j = 0; j < _ctxes.size(); j++) {
+      int peer = _ctxes[j].device_id;
       topo_info->bandwitdh_matrix[device][peer] = 0;
       if (device == peer) {
         topo_info->nvlink_matrix[device][peer] = 1;
@@ -373,19 +363,19 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
       }
     }
   }
-  for (int i = 0; i < _ctx_group.size(); i++) {
-    int device = _ctx_group[i].device_id;
+  for (int i = 0; i < _ctxes.size(); i++) {
+    int device = _ctxes[i].device_id;
     CUDA_CALL(cudaSetDevice(device));
     CUDA_CALL(cudaMemcpyAsync(buffers[device], buffersD2D[device], nbytes, cudaMemcpyDefault, stream[device]));
     CUDA_CALL(cudaStreamSynchronize(stream[device]));
-    for (int j = 0; j < _ctx_group.size(); j++) {
-      int peer = _ctx_group[j].device_id;
+    for (int j = 0; j < _ctxes.size(); j++) {
+      int peer = _ctxes[j].device_id;
       if (device != peer && topo_info->nvlink_matrix[device][peer]) {
         CUDA_CALL(cudaDeviceEnablePeerAccess(peer, 0));
       }
     }
-    for (int j = 0; j < _ctx_group.size(); j++) {
-      int peer = _ctx_group[j].device_id;
+    for (int j = 0; j < _ctxes.size(); j++) {
+      int peer = _ctxes[j].device_id;
       if (topo_info->nvlink_matrix[device][peer]) {
         Timer t0;
         CUDA_CALL(cudaMemcpyAsync(buffers[device], buffersD2D[peer], nbytes, cudaMemcpyDefault, stream[device]));
@@ -398,8 +388,8 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
         }
       }
     }
-    for (int j = 0; j < _ctx_group.size(); j++) {
-      int peer = _ctx_group[j].device_id;
+    for (int j = 0; j < _ctxes.size(); j++) {
+      int peer = _ctxes[j].device_id;
       if (device != peer && topo_info->nvlink_matrix[device][peer]) {
         CUDA_CALL(cudaDeviceDisablePeerAccess(peer));
       }
@@ -407,8 +397,8 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
   }
 
   // release resouce
-  for (int i = 0; i < _ctx_group.size(); i++) {
-    auto device = _ctx_group[i].device_id;
+  for (int i = 0; i < _ctxes.size(); i++) {
+    auto device = _ctxes[i].device_id;
     CUDA_CALL(cudaSetDevice(device));
     CUDA_CALL(cudaStreamDestroy(stream[device]));
     CUDA_CALL(cudaFree(buffers[device]));
@@ -417,8 +407,8 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
 
   std::stringstream ss;
   ss << "Topology Detect Debug: \n";
-  for (int i = 0; i < _ctx_group.size(); i++) {
-    for (int j = 0; j < _ctx_group.size(); j++) {
+  for (int i = 0; i < _ctxes.size(); i++) {
+    for (int j = 0; j < _ctxes.size(); j++) {
       ss << std::setw(8) << std::fixed << std::setprecision(1) << topo_info->bandwitdh_matrix[i][j] << " ";
     }
     ss << "\n";
@@ -429,7 +419,7 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
   exit(0);
 }
 
-std::ostream& operator<<(std::ostream &os, const PartitionSolver::GroupConfig &config) {
+std::ostream& operator<<(std::ostream &os, const DistGraph::GroupConfig &config) {
   std::stringstream part_ss;
   std::stringstream peer_ss;
   for (auto part : config.part_ids)

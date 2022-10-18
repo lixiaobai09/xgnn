@@ -105,10 +105,12 @@ class DistGraph {
 
   struct GroupConfig{
     Context ctx;
-    std::vector<int> part_ids;
+    std::vector<IdType> part_ids;
     std::vector<Context> ctx_group;
-    GroupConfig(Context ctx_, std::vector<int> part_ids_, std::vector<Context> group_)
+    GroupConfig(Context ctx_, const std::vector<IdType> &part_ids_,
+        const std::vector<Context> &group_)
       : ctx(ctx_), part_ids(part_ids_), ctx_group(group_) {};
+    friend std::ostream& operator<<(std::ostream &os, const GroupConfig &config);
   };
 
  private:
@@ -142,20 +144,12 @@ class DistGraph {
 
 class PartitionSolver {
  public:
-  struct GroupConfig{
-    Context ctx;
-    std::vector<IdType> part_ids;
-    std::vector<Context> ctx_group;
-    GroupConfig(Context ctx, const std::vector<IdType> &part_ids, const std::vector<Context> &group)
-      : ctx(ctx), part_ids(part_ids), ctx_group(group) {};
-    friend std::ostream& operator<<(std::ostream &os, const GroupConfig &config);
-  };
 
-  PartitionSolver(const std::vector<Context> &ctx_group);
-  std::vector<GroupConfig> solve() const ;
+  PartitionSolver(const std::vector<Context> &ctxes);
+  std::vector<DistGraph::GroupConfig> solve() const ;
  private:
-  std::vector<Context> _ctx_group;
-  
+  std::vector<Context> _ctxes;
+
   struct LinkTopoInfo {
     double bandwitdh_matrix[kMaxDevice][kMaxDevice];
     int nvlink_matrix[kMaxDevice][kMaxDevice];
@@ -165,7 +159,7 @@ class PartitionSolver {
 
   IdType FindPalcement(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
     IdType device, IdType part) const ;
-  IdType ChoosePeer(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice], 
+  IdType ChoosePeer(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
     IdType device, std::vector<IdType> peers, bool exist) const;
 };
 
