@@ -89,7 +89,6 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
         CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)shared_data));
       }
     }
-
     _Barrier();
 
     // receive data from others
@@ -105,6 +104,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
       part_data[i] = Tensor::FromBlob(ptr, kI32, {part_size_vec[i]}, ctx,
           name + " in device:" + std::to_string(ctx.device_id));
     }
+    _Barrier();
 
   };
 
@@ -214,6 +214,7 @@ PartitionSolver::PartitionSolver(const std::vector<Context> &ctxes)
 }
 
 void PartitionSolver::DetectTopo() {
+  Timer t1;
   // shared memory for transfer detect result
   LinkTopoInfo *shared_data = (LinkTopoInfo*)mmap(NULL, sizeof(LinkTopoInfo), 
     PROT_WRITE | PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
@@ -230,8 +231,9 @@ void PartitionSolver::DetectTopo() {
     std::memcpy(&_topo_info, shared_data, sizeof(LinkTopoInfo));
   }
   munmap(shared_data, sizeof(LinkTopoInfo));
+  double detect_time = t1.Passed();
 
-  LOG(INFO) << "DetectTopo Done";
+  LOG(INFO) << "DetectTopo Done, cost time: " << detect_time << "sec.";
 }
 
 std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
@@ -344,6 +346,7 @@ void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
   for (int i = 0; i < _ctxes.size(); i++) {
     int device = _ctxes[i].device_id;
     CUDA_CALL(cudaSetDevice(device));
+    // XXX: long time cost to lazy create ctx
     CUDA_CALL(cudaMalloc(&buffers[device], nbytes));
     CUDA_CALL(cudaMalloc(&buffersD2D[device], nbytes));
     CUDA_CALL(cudaStreamCreateWithFlags(&stream[device], cudaStreamNonBlocking));
