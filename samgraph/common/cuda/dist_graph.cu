@@ -325,7 +325,7 @@ IdType PartitionSolver::ChoosePeer(
   std::vector<std::tuple<IdType, IdType, double>> weight;
   for (auto peer : peers) {
     double bw = _topo_info.bandwitdh_matrix[device][peer];
-    bw /= access_cnt[device][peer] + (exist ? 0 : 1);
+    bw /= access_cnt[device][peer] + 1;
     weight.push_back({peer, parts[peer].size(), bw});
   }
   std::sort(weight.begin(), weight.end(), [&](auto x, auto y) {
