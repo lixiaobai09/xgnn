@@ -271,7 +271,7 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
         std::stringstream ss;
         for (auto peer : peers) ss << peer << " ";
         if (peers.empty()) ss << "NULL";
-        LOG(DEBUG) << "[" << device << ", " << part << "] " << ss.str();
+        LOG(DEBUG) << "[device, perr] is [" << device << ", " << part << "] choose peer from " << ss.str();
       }
       if (peers.empty()) {
         miss_parts.push_back(part);
@@ -283,7 +283,7 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
     }
     for (auto part : miss_parts) {
       IdType rep_peer = FindPalcement(parts, access_cnt, device, part);
-      LOG(DEBUG) << device << " place " << part << " into " << rep_peer;
+      LOG(DEBUG) << "device " << device << " place part " << part << " into peer " << rep_peer;
       parts[rep_peer].insert(part);
       access_cnt[device][rep_peer]++;
       access_matrix[device][part] = rep_peer;
