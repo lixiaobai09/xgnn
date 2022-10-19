@@ -21,6 +21,8 @@
 #include <memory>
 #include <cassert>
 #include <cuda_runtime_api.h>
+#include <set>
+#include <iostream>
 
 #include "../common.h"
 
@@ -101,6 +103,16 @@ class DistGraph {
     return _inst;
   }
 
+  struct GroupConfig{
+    Context ctx;
+    std::vector<IdType> part_ids;
+    std::vector<Context> ctx_group;
+    GroupConfig(Context ctx_, const std::vector<IdType> &part_ids_,
+        const std::vector<Context> &group_)
+      : ctx(ctx_), part_ids(part_ids_), ctx_group(group_) {};
+    friend std::ostream& operator<<(std::ostream &os, const GroupConfig &config);
+  };
+
  private:
   DistGraph() = delete;
   DistGraph(const DistGraph &) = delete;
@@ -109,12 +121,13 @@ class DistGraph {
 
   DistGraph(std::vector<Context> ctxes);
   void _Barrier();
-  void _DatasetPartition(const Dataset *dataset, int sampler_id);
+  void _DatasetPartition(const Dataset *dataset, Context ctx,
+    IdType part_id, IdType num_part);
 
   int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
-  std::vector<Context> _ctxes;
+  std::vector<GroupConfig> _group_configs;
   IdType _num_node;
 
   IdType **_d_part_indptr;
@@ -122,11 +135,32 @@ class DistGraph {
 
   struct SharedData {
     pthread_barrier_t barrier;
-    cudaIpcMemHandle_t mem_handle[kMaxDevice];
+    cudaIpcMemHandle_t mem_handle[kMaxDevice][kMaxDevice];
   };
   SharedData *_shared_data;
 
   static std::shared_ptr<DistGraph> _inst;
+};
+
+class PartitionSolver {
+ public:
+
+  PartitionSolver(const std::vector<Context> &ctxes);
+  std::vector<DistGraph::GroupConfig> solve() const ;
+ private:
+  std::vector<Context> _ctxes;
+
+  struct LinkTopoInfo {
+    double bandwitdh_matrix[kMaxDevice][kMaxDevice];
+    int nvlink_matrix[kMaxDevice][kMaxDevice];
+  } _topo_info;
+  void DetectTopo();
+  void DetectTopo_child(LinkTopoInfo *topo_info);
+
+  IdType FindPalcement(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
+    IdType device, IdType part) const ;
+  IdType ChoosePeer(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
+    IdType device, std::vector<IdType> peers, bool exist) const;
 };
 
 } // cuda
