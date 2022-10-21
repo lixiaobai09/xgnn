@@ -96,7 +96,7 @@ void Solver::Solve() {
     // get can not access parts for GPU i
     auto can_not_access_parts = (parts_universal_set - can_access_parts[i]);
     for (auto need_part : can_not_access_parts) {
-      // id, stored_parts_num, need_score, if_same_part_in_neighbors, bandwith
+      // id, stored_parts_size, need_score, if_same_part_in_neighbors, bandwith
       std::vector<std::tuple<int, int, int, int, double>> tmp_vec;
       const std::vector<double> &neighbor_bandwidth = _bandwidth_matrix[i];
       // iterate GPU_i neighbors
@@ -112,7 +112,7 @@ void Solver::Solve() {
             _bandwidth_matrix[i][j] / (access_count[i][j] + 1));
       }
       std::sort(tmp_vec.begin(), tmp_vec.end(), [](auto x, auto y){
-            // stored_parts_num
+            // stored_parts_size
             if (std::get<1>(x) != std::get<1>(y)) {
               return std::get<1>(x) < std::get<1>(y);
             }
@@ -126,7 +126,7 @@ void Solver::Solve() {
             }
             // bandwith
             if (std::get<4>(x) != std::get<4>(y)) {
-              return std::get<4>(x) < std::get<4>(y);
+              return std::get<4>(x) > std::get<4>(y);
             }
             return std::get<0>(x) < std::get<0>(y);
           });
@@ -176,6 +176,16 @@ void Solver::Solve() {
       std::cout << access_count[i][j] << " ";
     }
     std::cout << std::endl;
+  }
+
+  for (int i = 0; i < _num_ctx; ++i) {
+    for (int j = 0; j < _num_ctx; ++j) {
+      auto group_ctx_id = access_part_ctx[i][j];
+      if (!store_parts[group_ctx_id].count(j)) {
+        std::cout << "\033[31mERROR\033[0m " << i << " can not access part "
+          << j << " in GPU " << group_ctx_id << std::endl;
+      }
+    }
   }
 
 #endif
