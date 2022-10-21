@@ -11,56 +11,16 @@
 
 class Solver {
  public:
-  Solver(int n);
-  void ReadData(std::string path);
-  void Solve();
+  Solver() : _num_ctx(0) {};
+  void Solve(int n_gpu, const std::vector<std::vector<double>> &matrix);
 
  private:
   std::vector<std::vector<double>> _bandwidth_matrix;
   int _num_ctx;
 };
 
-Solver::Solver(int n) {
-  _num_ctx = n;
-  _bandwidth_matrix.resize(n, std::vector<double>(n, 0.0));
-}
-
-void Solver::ReadData(std::string path) {
-  std::ifstream ifile(path);
-  int num_node, num_edge;
-  int a, b;
-  double weight;
-  ifile >> num_node >> num_edge;
-  assert(num_node == _num_ctx);
-  while(num_edge--) {
-    ifile >> a >> b >> weight;
-    _bandwidth_matrix[a][b] = weight;
-    if (a != b) {
-      _bandwidth_matrix[b][a] = weight;
-    }
-  }
-#ifdef DEBUG
-  std::cout << std::setw(6) << std::fixed << std::setprecision(2)
-    << 0 << " ";
-  for (int i = 0; i < _num_ctx; ++i) {
-    std::cout << std::setw(6) << std::fixed << std::setprecision(2)
-      << i << " ";
-  }
-  std::cout << std::endl;
-  for (int i = 0; i < _num_ctx; ++i) {
-    std::cout << std::setw(6) << std::fixed << std::setprecision(2)
-      << i << " ";
-    for (int j = 0; j < _num_ctx; ++j) {
-      std::cout << std::setw(6) << std::fixed << std::setprecision(2)
-        << _bandwidth_matrix[i][j] << " ";
-    }
-    std::cout << std::endl;
-  }
-#endif
-}
-
 template<typename T>
-std::set<T> operator-(const std::set<T> &a, const std::set<T> &b) {
+std::set<T> operator- (const std::set<T> &a, const std::set<T> &b) {
   std::set<T> ret;
   for (auto i : a) {
     if (!b.count(i)) {
@@ -70,7 +30,11 @@ std::set<T> operator-(const std::set<T> &a, const std::set<T> &b) {
   return std::move(ret);
 };
 
-void Solver::Solve() {
+void Solver::Solve(int n_gpu,
+    const std::vector<std::vector<double>> &matrix_input) {
+  _num_ctx = n_gpu;
+  _bandwidth_matrix = matrix_input;
+
   std::vector<std::vector<int>> access_count(
       _num_ctx, std::vector<int>(_num_ctx, 0));
   std::vector<std::vector<int>> access_part_ctx(
@@ -156,6 +120,7 @@ void Solver::Solve() {
       access_count[i][j] += 1;
     }
   }
+
 #ifdef DEBUG
   for (int i = 0; i < _num_ctx; ++i) {
     assert(can_access_parts[i].size() == _num_ctx);
@@ -177,6 +142,7 @@ void Solver::Solve() {
     }
     std::cout << std::endl;
   }
+#endif
 
   for (int i = 0; i < _num_ctx; ++i) {
     for (int j = 0; j < _num_ctx; ++j) {
@@ -185,16 +151,92 @@ void Solver::Solve() {
         std::cout << "\033[31mERROR\033[0m " << i << " can not access part "
           << j << " in GPU " << group_ctx_id << std::endl;
       }
+      if (access_count[i][j] != 1) {
+        std::cout << "\033[31mWARN\033[0m access imbalance" << std::endl;
+      }
     }
   }
+}
 
-#endif
+void PrintBandwithMatrix(
+    const std::vector<std::vector<double>> &bandwidth_matrix) {
+  int num_node = bandwidth_matrix.size();
+
+  std::cout << std::setw(6) << std::fixed << std::setprecision(2)
+    << 0 << " ";
+  for (int i = 0; i < num_node; ++i) {
+    std::cout << std::setw(6) << std::fixed << std::setprecision(2)
+      << i << " ";
+  }
+  std::cout << std::endl;
+  for (int i = 0; i < num_node; ++i) {
+    std::cout << std::setw(6) << std::fixed << std::setprecision(2)
+      << i << " ";
+    for (int j = 0; j < num_node; ++j) {
+      std::cout << std::setw(6) << std::fixed << std::setprecision(2)
+        << bandwidth_matrix[i][j] << " ";
+    }
+    std::cout << std::endl;
+  }
+
+}
+
+std::vector<std::vector<double>> ReadDataFromFile(std::string path) {
+  int num_node, num_edge;
+  int a, b;
+  double weight;
+  std::vector<std::vector<double>> bandwidth_matrix;
+
+  std::ifstream ifile(path);
+  ifile >> num_node >> num_edge;
+
+  bandwidth_matrix.resize(num_node, std::vector<double>(num_node, 0.0));
+
+  while(num_edge--) {
+    ifile >> a >> b >> weight;
+    bandwidth_matrix[a][b] = weight;
+    if (a != b) {
+      bandwidth_matrix[b][a] = weight;
+    }
+  }
+  PrintBandwithMatrix(bandwidth_matrix);
+  return std::move(bandwidth_matrix);
 }
 
 int main(int argc, char** argv) {
-  int n = std::atoi(argv[1]);
-  Solver solver(n);
-  solver.ReadData("./input.txt");
-  solver.Solve();
+  auto bandwidth_matrix = ReadDataFromFile("./input.txt");
+  int n_gpu = bandwidth_matrix.size();
+  std::vector<int> map_vec(n_gpu);
+  for (int i = 0; i < n_gpu; ++i) {
+    map_vec[i] = i;
+  }
+
+  Solver solver;
+
+#ifdef DEBUG
+  int t = 5;
+#endif
+
+  do {
+    std::vector<std::vector<double>> maped_bandwidth_matrix(n_gpu,
+        std::vector<double>(n_gpu, 0.0));
+    for (int i = 0; i < n_gpu; ++i) {
+      for (int j = 0; j < n_gpu; ++j) {
+        maped_bandwidth_matrix[map_vec[i]][map_vec[j]] =
+          bandwidth_matrix[i][j];
+      }
+    }
+    solver.Solve(n_gpu, maped_bandwidth_matrix);
+
+#ifdef DEBUG
+    std::cout << "---------------" << std::endl;
+    for (int i = 0; i < n_gpu; ++i) std::cout << map_vec[i] << " ";
+    std::cout << std::endl;
+    PrintBandwithMatrix(maped_bandwidth_matrix);
+    if (!(t--)) break;
+#endif
+
+  } while(std::next_permutation(map_vec.begin(), map_vec.end()));
+
   return 0;
 }
