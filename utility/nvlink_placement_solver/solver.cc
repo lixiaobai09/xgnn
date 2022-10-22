@@ -117,7 +117,7 @@ void Solver::Solve(int n_gpu,
         }
       }
       access_part_ctx[i][j] = which_gpu;
-      access_count[i][j] += 1;
+      access_count[i][which_gpu] += 1;
     }
   }
 
