@@ -479,17 +479,17 @@ void PartitionSolver::LoadTopoFromFile(std::ifstream &ifs) {
       for (int i= 0; i < num_device; i++) {
         std::getline(ifs, line);
         std::stringstream ss(line, std::ios::in);
-        // for (int j = 0; j < num_device; j++) {
-        //   ss >> universal_topo_info.nvlink_matrix[i][j];
-        // }
+        for (int j = 0; j < num_device; j++) {
+          ss >> universal_topo_info.nvlink_matrix[i][j];
+        }
       }
     } else if (line.find(std::string{"Bandwidth Matrix"}) != std::string::npos) {
       for (int i = 0; i < num_device; i++) {
         std::getline(ifs, line);
         std::stringstream ss(line, std::ios::in);
-        // for (int j = 0; j < num_device; j++) {
-        //   ss >> universal_topo_info.bandwitdh_matrix[i][j];
-        // }
+        for (int j = 0; j < num_device; j++) {
+          ss >> universal_topo_info.bandwitdh_matrix[i][j];
+        }
       }
     }
     if (ifs.eof())
