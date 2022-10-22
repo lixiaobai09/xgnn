@@ -71,5 +71,7 @@ const std::string Constant::kNodeAccessSimilarityFile = "node_access_similarity"
 const std::string Constant::kNodeAccessPreSampleSimFile = "node_access_presample";
 const std::string Constant::kNodeAccessFileSuffix = ".txt";
 
+const std::string Constant::kDetectTopoFile = ".detect_topo";
+
 }  // namespace common
 }  // namespace samgraph

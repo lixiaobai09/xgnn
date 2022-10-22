@@ -23,6 +23,7 @@
 #include <cuda_runtime_api.h>
 #include <set>
 #include <iostream>
+#include <fstream>
 
 #include "../common.h"
 
@@ -155,7 +156,8 @@ class PartitionSolver {
     int nvlink_matrix[kMaxDevice][kMaxDevice];
   } _topo_info;
   void DetectTopo();
-  void DetectTopo_child(LinkTopoInfo *topo_info);
+  void DetectTopo_child(const std::string &topo_file);
+  void LoadTopoFromFile(std::ifstream &ifs);
 
   IdType FindPalcement(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
     IdType device, IdType part) const ;
