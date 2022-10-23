@@ -438,6 +438,7 @@ void PartitionSolver::DetectTopo_child(const std::string &topo_file) {
   std::ofstream ofs(topo_file);
   CHECK(ofs.is_open()) << "cannot open " << topo_file;
   ofs << "GPU Count " << universal_devices.size() << "\n";
+  ofs << "Device Order " << topo_file.substr(Constant::kDetectTopoFile.size() + 1) << "\n";
   for (int i = 0; i < universal_devices.size(); i++) {
     const auto &prop = universal_devices[i];
     ofs << "GPU [" << i << "] " << prop.name;
