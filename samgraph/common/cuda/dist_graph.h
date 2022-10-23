@@ -151,16 +151,12 @@ class PartitionSolver {
   std::vector<Context> _ctxes;
 
   struct LinkTopoInfo {
-    double bandwitdh_matrix[kMaxDevice][kMaxDevice];
+    double bandwidth_matrix[kMaxDevice][kMaxDevice];
     int nvlink_matrix[kMaxDevice][kMaxDevice];
   } _topo_info;
   void DetectTopo();
   void DetectTopo_child(LinkTopoInfo *topo_info);
 
-  IdType FindPalcement(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
-    IdType device, IdType part) const ;
-  IdType ChoosePeer(const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
-    IdType device, std::vector<IdType> peers, bool exist) const;
 };
 
 } // cuda
