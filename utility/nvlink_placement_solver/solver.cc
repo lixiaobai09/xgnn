@@ -7,7 +7,7 @@
 #include <algorithm>
 #include <tuple>
 
-#define DEBUG
+// #define DEBUG
 
 int check_max_parts = 2;
 
@@ -56,6 +56,9 @@ void Solver::Solve(int n_gpu,
         neighbor_adjacency[i].insert(j);
       }
     }
+    if (i > 0 && (neighbor_adjacency[i].size() < neighbor_adjacency[i - 1].size())) {
+      return;
+    }
   }
   // iterator for each GPU ctx
   for (int i = 0; i < _num_ctx; ++i) {
@@ -77,7 +80,7 @@ void Solver::Solve(int n_gpu,
             can_access_parts[j].count(need_part),
             _bandwidth_matrix[i][j] / (access_count[i][j] + 1));
             // 1.0d * need_score / neighbor_adjacency[j].size());
-        std::cout << "need_score: " << need_score << std::endl;
+        // std::cout << "need_score: " << need_score << std::endl;
         // std::cout << i << ": P_" << need_part << " in G_" << j << " = "
         //   << std::fixed << std::setprecision(2) << std::get<5>(tmp_vec.back())
         //   << std::endl;
@@ -107,8 +110,8 @@ void Solver::Solve(int n_gpu,
             return std::get<0>(x) < std::get<0>(y);
           });
       int choose_gpu_id = std::get<0>(tmp_vec.front());
-      std::cout << "choose: GPU_" << i << " save P_" << need_part << " in G_"
-        << choose_gpu_id << std::endl;
+      // std::cout << "choose: GPU_" << i << " save P_" << need_part << " in G_"
+      //   << choose_gpu_id << std::endl;
       store_parts[choose_gpu_id].insert(need_part);
       // update can access parts for choose_gpu_id neighbors
       for (auto neighbor : neighbor_adjacency[choose_gpu_id]) {
@@ -240,12 +243,13 @@ int main(int argc, char** argv) {
   for (int i = 0; i < n_gpu; ++i) {
     map_vec[i] = i;
   }
-  map_vec = {0, 1, 3, 5, 4, 2};
+  // map_vec = {0, 1, 3, 5, 4, 2};
+  // map_vec = {2, 4, 0, 3, 5, 1};
 
   Solver solver;
 
 #ifdef DEBUG
-  int t = 0;
+  int t = 10;
 #endif
 
   do {
