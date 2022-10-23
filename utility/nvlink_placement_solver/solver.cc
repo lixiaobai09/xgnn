@@ -9,6 +9,8 @@
 
 #define DEBUG
 
+int check_max_parts = 2;
+
 class Solver {
  public:
   Solver() : _num_ctx(0) {};
@@ -67,13 +69,18 @@ void Solver::Solve(int n_gpu,
       for(auto j : neighbor_adjacency[i]) {
         int need_score = 0;
         for (auto k : neighbor_adjacency[j]) {
-          if(!can_access_parts[k].count(j)) {
+          if(!can_access_parts[k].count(need_part)) {
             ++need_score;
           }
         }
         tmp_vec.emplace_back(j, store_parts[j].size(), need_score,
             can_access_parts[j].count(need_part),
             _bandwidth_matrix[i][j] / (access_count[i][j] + 1));
+            // 1.0d * need_score / neighbor_adjacency[j].size());
+        std::cout << "need_score: " << need_score << std::endl;
+        // std::cout << i << ": P_" << need_part << " in G_" << j << " = "
+        //   << std::fixed << std::setprecision(2) << std::get<5>(tmp_vec.back())
+        //   << std::endl;
       }
       std::sort(tmp_vec.begin(), tmp_vec.end(), [](auto x, auto y){
             // stored_parts_size
@@ -84,6 +91,11 @@ void Solver::Solve(int n_gpu,
             if (std::get<2>(x) != std::get<2>(y)) {
               return std::get<2>(x) > std::get<2>(y);
             }
+            /*
+            if (std::get<5>(x) != std::get<5>(y)) {
+              return std::get<5>(x) > std::get<5>(y);
+            }
+            */
             // if_same_part_in_neighbors 0 or 1
             if (std::get<3>(x) != std::get<3>(y)) {
               return std::get<3>(x) < std::get<3>(y);
@@ -95,6 +107,8 @@ void Solver::Solve(int n_gpu,
             return std::get<0>(x) < std::get<0>(y);
           });
       int choose_gpu_id = std::get<0>(tmp_vec.front());
+      std::cout << "choose: GPU_" << i << " save P_" << need_part << " in G_"
+        << choose_gpu_id << std::endl;
       store_parts[choose_gpu_id].insert(need_part);
       // update can access parts for choose_gpu_id neighbors
       for (auto neighbor : neighbor_adjacency[choose_gpu_id]) {
@@ -151,10 +165,21 @@ void Solver::Solve(int n_gpu,
         std::cout << "\033[31mERROR\033[0m " << i << " can not access part "
           << j << " in GPU " << group_ctx_id << std::endl;
       }
-      if (access_count[i][j] != 1) {
+    }
+  }
+  // check access count
+  for(int i = 0; i < _num_ctx; ++i) {
+    if (store_parts[i].size() > check_max_parts) {
+      std::cout << "\033[31mWARN\033[0m too many parts" << std::endl;
+    }
+    /*
+    for (int j = 0; j <=i; ++j) {
+      int tmp_access_count = (access_count[i][j] + access_count[j][i]);
+      if (tmp_access_count == 0 && _bandwidth_matrix[i][j] != 0.0) {
         std::cout << "\033[31mWARN\033[0m access imbalance" << std::endl;
       }
     }
+    */
   }
 }
 
@@ -204,17 +229,23 @@ std::vector<std::vector<double>> ReadDataFromFile(std::string path) {
 }
 
 int main(int argc, char** argv) {
-  auto bandwidth_matrix = ReadDataFromFile("./input.txt");
+  std::string input_file = argv[1];
+  // max part size in each GPU
+  check_max_parts = std::stoi(argv[2]);
+
+  auto bandwidth_matrix = ReadDataFromFile(input_file);
   int n_gpu = bandwidth_matrix.size();
+  // 0 1 2 6 5 4 3 7 a example link not be used for 8-GPU
   std::vector<int> map_vec(n_gpu);
   for (int i = 0; i < n_gpu; ++i) {
     map_vec[i] = i;
   }
+  map_vec = {0, 1, 3, 5, 4, 2};
 
   Solver solver;
 
 #ifdef DEBUG
-  int t = 5;
+  int t = 0;
 #endif
 
   do {
