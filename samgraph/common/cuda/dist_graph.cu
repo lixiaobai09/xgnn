@@ -20,11 +20,11 @@ namespace cuda {
 namespace {
 
 template<typename T>
-std::set<T> operator- (const std::set<T> &a, const std::set<T> &b) {
-  std::set<T> ret;
+std::vector<T> operator- (const std::set<T> &a, const std::set<T> &b) {
+  std::vector<T> ret;
   for (auto i : a) {
     if (!b.count(i)) {
-      ret.insert(i);
+      ret.emplace_back(i);
     }
   }
   return std::move(ret);
@@ -174,6 +174,7 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
   for (auto &config : _group_configs) {
     LOG(INFO) << config;
   }
+  // exit(0);
 
   int num_worker = ctxes.size();
   _sampler_id = static_cast<int>(Constant::kEmptyKey);
@@ -295,7 +296,16 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
   for (auto item : asc_degree_gpu_order) {
     int i = std::get<0>(item);
     // get can not access parts for GPU i
-    auto can_not_access_parts = (parts_universal_set - can_access_parts[i]);
+    std::vector<int> can_not_access_parts =
+      (parts_universal_set - can_access_parts[i]);
+    // sort it by default degree
+    std::sort(can_not_access_parts.begin(), can_not_access_parts.end(),
+        [&neighbor_adjacency](auto x, auto y) {
+          if (neighbor_adjacency[x].size() != neighbor_adjacency[y].size()) {
+            return neighbor_adjacency[x].size() < neighbor_adjacency[y].size();
+          }
+          return x < y;
+        });
     for (auto need_part : can_not_access_parts) {
       // id, stored_parts_size, need_score, if_same_part_in_neighbors, bandwidth
       std::vector<std::tuple<int, int, int, int, double>> tmp_vec;
@@ -352,6 +362,8 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
           }
         }
       }
+      std::cout << "GPU_" << i << " choose part " << j << " in neighbor GPU_"
+        << which_gpu << std::endl;
       access_part_ctx[i][j] = which_gpu;
       access_count[i][which_gpu] += 1;
     }
