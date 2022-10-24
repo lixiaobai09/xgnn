@@ -174,7 +174,6 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
   for (auto &config : _group_configs) {
     LOG(INFO) << config;
   }
-  // exit(0);
 
   int num_worker = ctxes.size();
   _sampler_id = static_cast<int>(Constant::kEmptyKey);
@@ -362,8 +361,6 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
           }
         }
       }
-      std::cout << "GPU_" << i << " choose part " << j << " in neighbor GPU_"
-        << which_gpu << std::endl;
       access_part_ctx[i][j] = which_gpu;
       access_count[i][which_gpu] += 1;
     }
