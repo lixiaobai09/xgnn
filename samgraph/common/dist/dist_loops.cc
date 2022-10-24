@@ -102,7 +102,7 @@ void DoGPUSample(TaskPtr task) {
   Timer t;
   auto output_nodes = task->output_nodes;
   size_t num_train_node = output_nodes->Shape()[0];
-  hash_table->FillWithUnique(output_nodes->CPtr<IdType>(), num_train_node,
+  hash_table->FillWithDupRevised(output_nodes->CPtr<IdType>(), num_train_node,
       sample_stream);
   task->graphs.resize(num_layers);
   double fill_unique_time = t.Passed();
@@ -195,7 +195,7 @@ void DoGPUSample(TaskPtr task) {
               task->key);
           } else {
             cuda::GPUSampleRandomWalk<cuda::DeviceNormalGraph>(
-              cuda::DeviceNormalGraph(indptr, indices, num_node), 
+              cuda::DeviceNormalGraph(indptr, indices, num_node),
               input, num_input, RunConfig::random_walk_length,
               RunConfig::random_walk_restart_prob, RunConfig::num_random_walk,
               RunConfig::num_neighbor, out_src, out_dst, out_data, num_out,
