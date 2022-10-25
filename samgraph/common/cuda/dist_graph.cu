@@ -293,7 +293,7 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
     parts_universal_set.insert(i);
     store_parts[i].insert(i);
     for (int j = 0; j < num_ctx; ++j) {
-      if (bandwidth_matrix[i][j] != 0.0) {
+      if (std::abs(bandwidth_matrix[i][j]) > 1e-6) {
         can_access_parts[i].insert(j);
         neighbor_adjacency[i].insert(j);
       }
