@@ -8,6 +8,8 @@
 #include <iomanip>
 #include <set>
 #include <algorithm>
+#include <fstream>
+#include <regex>
 
 #include "../device.h"
 #include "../timer.h"
@@ -229,26 +231,47 @@ PartitionSolver::PartitionSolver(const std::vector<Context> &ctxes)
 }
 
 void PartitionSolver::DetectTopo() {
-  Timer t1;
-  // shared memory for transfer detect result
-  LinkTopoInfo *shared_data = (LinkTopoInfo*)mmap(NULL, sizeof(LinkTopoInfo), 
-    PROT_WRITE | PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0);
-  int pid = fork();
-  CHECK(pid != -1);
-  if (pid == 0) {
-    DetectTopo_child(shared_data);
+  std::string device_order;
+  if (auto s = std::getenv("CUDA_DEVICE_ORDER")) {
+    device_order = std::string{s};
   } else {
-    int wstatus;
-    waitpid(pid, &wstatus, 0);
-    if (WEXITSTATUS(wstatus) != 0 || WIFSIGNALED(wstatus)) {
-      CHECK(false);
-    }
-    std::memcpy(&_topo_info, shared_data, sizeof(LinkTopoInfo));
+    device_order = "FASTEST_FIRST";
   }
-  munmap(shared_data, sizeof(LinkTopoInfo));
-  double detect_time = t1.Passed();
 
-  LOG(INFO) << "DetectTopo Done, cost time: " << detect_time << "sec.";
+  std::string topo_file = Constant::kDetectTopoFile + "_" + device_order;
+  std::ifstream topo_ifs(topo_file);
+  if (!topo_ifs.is_open()) {
+    Timer t1;
+    int pid = fork();
+    CHECK(pid != -1);
+    if (pid == 0) {
+      unsetenv("CUDA_VISIBLE_DEVICES");
+      DetectTopo_child(topo_file);
+    } else {
+      int wstatus;
+      waitpid(pid, &wstatus, 0);
+      if (WEXITSTATUS(wstatus) != 0 || WIFSIGNALED(wstatus)) {
+        CHECK(false);
+      }
+    }
+    double detect_time = t1.Passed();
+    LOG(INFO) << "DetectTopo Done, cost time: " << detect_time << "sec.";
+
+    topo_ifs.open(topo_file);
+    CHECK(topo_ifs.is_open());
+  }
+  LoadTopoFromFile(topo_ifs);
+  topo_ifs.close();
+
+  std::stringstream ss;
+  ss << "Topology Detect Debug: \n";
+  for (int i = 0; i < _ctxes.size(); i++) {
+    for (int j = 0; j < _ctxes.size(); j++) {
+      ss << std::setw(8) << std::fixed << std::setprecision(1) << _topo_info.bandwidth_matrix[i][j] << " ";
+    }
+    ss << "\n";
+  }
+  LOG(INFO) << ss.str();
 }
 
 std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
@@ -382,88 +405,165 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
   return configs;
 }
 
-void PartitionSolver::DetectTopo_child(LinkTopoInfo *topo_info) {
+void PartitionSolver::DetectTopo_child(const std::string &topo_file) {
+  LinkTopoInfo topo_info;
   // 128M buffer for bandwidth test to detect backbone link
   size_t nbytes = (1<<27);
   IdType *buffers[kMaxDevice], *buffersD2D[kMaxDevice];
   cudaStream_t stream[kMaxDevice];
-  for (int i = 0; i < _ctxes.size(); i++) {
-    int device = _ctxes[i].device_id;
+
+  int num_device;
+  CUDA_CALL(cudaGetDeviceCount(&num_device));
+  CHECK(num_device <= kMaxDevice);
+
+  std::vector<cudaDeviceProp> universal_devices(num_device);
+  for (int i = 0; i < num_device; i++) {
+    CUDA_CALL(cudaGetDeviceProperties(&universal_devices[i], i));
+  }
+
+  for (int device = 0; device < num_device; device++) {
     CUDA_CALL(cudaSetDevice(device));
     // XXX: long time cost to lazy create ctx
     CUDA_CALL(cudaMalloc(&buffers[device], nbytes));
     CUDA_CALL(cudaMalloc(&buffersD2D[device], nbytes));
     CUDA_CALL(cudaStreamCreateWithFlags(&stream[device], cudaStreamNonBlocking));
-    for (int j = 0; j < _ctxes.size(); j++) {
-      int peer = _ctxes[j].device_id;
-      topo_info->bandwidth_matrix[device][peer] = 0;
+    for (int peer = 0; peer < num_device; peer++) {
+      topo_info.bandwidth_matrix[device][peer] = 0;
       if (device == peer) {
-        topo_info->nvlink_matrix[device][peer] = 1;
+        topo_info.nvlink_matrix[device][peer] = 1;
         continue;
       }
       int can_access = false;
       CUDA_CALL(cudaDeviceCanAccessPeer(&can_access, device, peer));
       if (!can_access) {
-        topo_info->nvlink_matrix[device][peer] = 0;
+        topo_info.nvlink_matrix[device][peer] = 0;
       } else {
-        topo_info->nvlink_matrix[device][peer] = 1;
+        topo_info.nvlink_matrix[device][peer] = 1;
       }
     }
   }
-  for (int i = 0; i < _ctxes.size(); i++) {
-    int device = _ctxes[i].device_id;
+  for (int device = 0; device < num_device; device++) {
     CUDA_CALL(cudaSetDevice(device));
     CUDA_CALL(cudaMemcpyAsync(buffers[device], buffersD2D[device], nbytes, cudaMemcpyDefault, stream[device]));
     CUDA_CALL(cudaStreamSynchronize(stream[device]));
-    for (int j = 0; j < _ctxes.size(); j++) {
-      int peer = _ctxes[j].device_id;
-      if (device != peer && topo_info->nvlink_matrix[device][peer]) {
+    for (int peer = 0; peer < num_device; peer++) {
+      if (device != peer && topo_info.nvlink_matrix[device][peer]) {
         CUDA_CALL(cudaDeviceEnablePeerAccess(peer, 0));
       }
     }
-    for (int j = 0; j < _ctxes.size(); j++) {
-      int peer = _ctxes[j].device_id;
-      if (topo_info->nvlink_matrix[device][peer]) {
+    for (int peer = 0; peer < num_device; peer++) {
+      if (topo_info.nvlink_matrix[device][peer]) {
         Timer t0;
         CUDA_CALL(cudaMemcpyAsync(buffers[device], buffersD2D[peer], nbytes, cudaMemcpyDefault, stream[device]));
         CUDA_CALL(cudaStreamSynchronize(stream[device]));
         auto sec = t0.Passed();
         if (device == peer) {
-          topo_info->bandwidth_matrix[device][peer] = 2 * nbytes / sec / 1e9;
+          topo_info.bandwidth_matrix[device][peer] = 2 * nbytes / sec / 1e9;
         } else {
-          topo_info->bandwidth_matrix[device][peer] = nbytes / sec / 1e9;
+          topo_info.bandwidth_matrix[device][peer] = nbytes / sec / 1e9;
         }
       }
     }
-    for (int j = 0; j < _ctxes.size(); j++) {
-      int peer = _ctxes[j].device_id;
-      if (device != peer && topo_info->nvlink_matrix[device][peer]) {
+    for (int peer = 0; peer < num_device; peer++) {
+      if (device != peer && topo_info.nvlink_matrix[device][peer]) {
         CUDA_CALL(cudaDeviceDisablePeerAccess(peer));
       }
     }
   }
 
   // release resouce
-  for (int i = 0; i < _ctxes.size(); i++) {
-    auto device = _ctxes[i].device_id;
+  for (int device = 0; device < num_device; device++) {
     CUDA_CALL(cudaSetDevice(device));
     CUDA_CALL(cudaStreamDestroy(stream[device]));
     CUDA_CALL(cudaFree(buffers[device]));
     CUDA_CALL(cudaFree(buffersD2D[device]));
   }
 
-  std::stringstream ss;
-  ss << "Topology Detect Debug: \n";
-  for (int i = 0; i < _ctxes.size(); i++) {
-    for (int j = 0; j < _ctxes.size(); j++) {
-      ss << std::setw(8) << std::fixed << std::setprecision(1) << topo_info->bandwidth_matrix[i][j] << " ";
+  std::ofstream ofs(topo_file);
+  CHECK(ofs.is_open()) << "cannot open " << topo_file;
+  ofs << "GPU Count " << universal_devices.size() << "\n";
+  ofs << "Device Order " << topo_file.substr(Constant::kDetectTopoFile.size() + 1) << "\n";
+  for (int i = 0; i < universal_devices.size(); i++) {
+    const auto &prop = universal_devices[i];
+    ofs << "GPU [" << i << "] " << prop.name;
+    ofs << " (UUID: ";
+    for (int j = 0; j < 16; j++) {
+      uint8_t x = prop.uuid.bytes[j];
+      ofs << std::hex << std::setw(2) << std::setfill('0')
+        << static_cast<int>(x) << std::setfill(' ');
     }
-    ss << "\n";
+    ofs << ")\n";
   }
-  LOG(INFO) << ss.str();
-
-  munmap(topo_info, sizeof(LinkTopoInfo));
+  ofs << "\n\nP2P Matrix\n";
+  for (int i = 0; i < num_device; i++) {
+    for (int j = 0; j < num_device; j++) {
+      ofs << std::setw(4) << topo_info.nvlink_matrix[i][j] << " ";
+    }
+    ofs << "\n";
+  }
+  ofs << "\n\nBandwidth Matrix\n";
+  for (int i = 0; i < num_device; i++) {
+    for (int j = 0; j < num_device; j++) {
+      ofs << std::setw(8) << std::fixed << std::setprecision(2) << topo_info.bandwidth_matrix[i][j] << " ";
+    }
+    ofs << "\n";
+  }
+  ofs.close();
   exit(0);
+}
+
+void PartitionSolver::LoadTopoFromFile(std::ifstream &ifs) {
+  LinkTopoInfo universal_topo_info;
+
+  std::string line;
+  std::getline(ifs, line);
+  std::smatch num_device_match;
+  CHECK(std::regex_search(line, num_device_match,std::regex{"GPU Count ([0-9]+)"})) << "cannot determine #GPU";
+  int num_device = std::stoi(num_device_match[1].str());
+  while (std::getline(ifs, line)) {
+    if (line.find(std::string{"P2P Matrix"}) != std::string::npos) {
+      for (int i= 0; i < num_device; i++) {
+        std::getline(ifs, line);
+        std::stringstream ss(line, std::ios::in);
+        for (int j = 0; j < num_device; j++) {
+          ss >> universal_topo_info.nvlink_matrix[i][j];
+        }
+      }
+    } else if (line.find(std::string{"Bandwidth Matrix"}) != std::string::npos) {
+      for (int i = 0; i < num_device; i++) {
+        std::getline(ifs, line);
+        std::stringstream ss(line, std::ios::in);
+        for (int j = 0; j < num_device; j++) {
+          ss >> universal_topo_info.bandwidth_matrix[i][j];
+        }
+      }
+    }
+    if (ifs.eof())
+      break;
+  }
+
+  auto visiable_device = std::getenv("CUDA_VISIBLE_DEVICES");
+  if (visiable_device == nullptr) {
+    std::memcpy(&_topo_info, &universal_topo_info, sizeof(LinkTopoInfo));
+    return;
+  }
+  std::smatch d_match;
+  std::string visiable_device_str{visiable_device};
+  std::vector<int> devices;
+  while(std::regex_search(visiable_device_str, d_match, std::regex{"[0-9]+"})) {
+    devices.push_back(std::stoi(d_match[0].str()));
+    visiable_device_str = d_match.suffix();
+  }
+  CHECK(devices.size() > 0) << "cannot find device in CUDA_VISIBLE_DEVICES";
+
+  for (int i = 0; i < _ctxes.size(); i++) {
+    int device = devices[i];
+    for (int j = 0; j < _ctxes.size(); j++) {
+      int peer = devices[j];
+      _topo_info.nvlink_matrix[i][j] = universal_topo_info.nvlink_matrix[device][peer];
+      _topo_info.bandwidth_matrix[i][j] = universal_topo_info.bandwidth_matrix[device][peer];
+    }
+  }
 }
 
 std::ostream& operator<<(std::ostream &os, const DistGraph::GroupConfig &config) {
