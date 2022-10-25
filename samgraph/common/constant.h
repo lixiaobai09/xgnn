@@ -103,6 +103,8 @@ class Constant {
   static const std::string kNodeAccessSimilarityFile;
   static const std::string kNodeAccessPreSampleSimFile;
   static const std::string kNodeAccessFileSuffix;
+
+  static const std::string kDetectTopoFile;
 };
 
 }  // namespace common
