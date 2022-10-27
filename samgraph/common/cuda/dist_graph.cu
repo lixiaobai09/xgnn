@@ -19,6 +19,21 @@ namespace samgraph {
 namespace common {
 namespace cuda {
 
+namespace {
+
+template<typename T>
+std::vector<T> operator- (const std::set<T> &a, const std::set<T> &b) {
+  std::vector<T> ret;
+  for (auto i : a) {
+    if (!b.count(i)) {
+      ret.emplace_back(i);
+    }
+  }
+  return std::move(ret);
+};
+
+}; // namespace
+
 std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
 
 void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
@@ -252,7 +267,7 @@ void PartitionSolver::DetectTopo() {
   ss << "Topology Detect Debug: \n";
   for (int i = 0; i < _ctxes.size(); i++) {
     for (int j = 0; j < _ctxes.size(); j++) {
-      ss << std::setw(8) << std::fixed << std::setprecision(1) << _topo_info.bandwitdh_matrix[i][j] << " ";
+      ss << std::setw(8) << std::fixed << std::setprecision(1) << _topo_info.bandwidth_matrix[i][j] << " ";
     }
     ss << "\n";
   }
@@ -260,105 +275,134 @@ void PartitionSolver::DetectTopo() {
 }
 
 std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
-  std::set<IdType> parts[kMaxDevice];
-  IdType access_matrix[kMaxDevice][kMaxDevice] = {0};
-  IdType access_cnt[kMaxDevice][kMaxDevice] = {0};
-  std::memset(access_matrix, -1, sizeof(access_matrix));
-  
-  for (int i = 0; i < _ctxes.size(); i++) {
-    int device = _ctxes[i].device_id;
-    parts[device].insert(device);
-    access_matrix[device][device] = device;
-    access_cnt[device][device]++;
-  }
-  
-  auto neighborParts = [&](IdType device, IdType part) -> std::vector<IdType> {
-    std::vector<IdType> peer_vec;
-    for (int peer = 0; peer < this->_ctxes.size(); peer++) {
-      if (this->_topo_info.nvlink_matrix[device][peer]) {
-        if (parts[peer].find(part) != parts[peer].end()) {
-          peer_vec.push_back(peer);
-        } 
-      }
-    }
-    return peer_vec;
-  };
+  IdType num_ctx = _ctxes.size();
+  const auto &bandwidth_matrix = _topo_info.bandwidth_matrix;
 
-  for (int device = 0; device < _ctxes.size(); device++) {
-    std::vector<IdType> miss_parts;
-    for (int part = 0; part < _ctxes.size(); part++) {
-      if (access_matrix[device][part] != static_cast<IdType>(-1))
-        continue;
-      auto peers = neighborParts(device, part);
-      {
-        std::stringstream ss;
-        for (auto peer : peers) ss << peer << " ";
-        if (peers.empty()) ss << "NULL";
-        LOG(DEBUG) << "[device, perr] is [" << device << ", " << part << "] choose peer from " << ss.str();
-      }
-      if (peers.empty()) {
-        miss_parts.push_back(part);
-      } else {
-        auto peer = ChoosePeer(parts, access_cnt, device, peers, true);
-        access_cnt[device][peer]++;
-        access_matrix[device][part] = peer;
+  std::vector<std::vector<int>> access_count(
+      num_ctx, std::vector<int>(num_ctx, 0));
+  std::vector<std::vector<int>> access_part_ctx(
+      num_ctx, std::vector<int>(num_ctx, -1));
+  std::vector<std::set<int>> store_parts(num_ctx);
+
+  std::vector<std::set<int>> can_access_parts(num_ctx);
+  // from bandwidth matrix
+  std::vector<std::set<int>> neighbor_adjacency(num_ctx);
+  std::set<int> parts_universal_set;
+  std::vector<std::tuple<int, int>> asc_degree_gpu_order(num_ctx);
+  for (int i = 0; i < num_ctx; ++i) {
+    parts_universal_set.insert(i);
+    store_parts[i].insert(i);
+    for (int j = 0; j < num_ctx; ++j) {
+      if (std::abs(bandwidth_matrix[i][j]) > 1e-6) {
+        can_access_parts[i].insert(j);
+        neighbor_adjacency[i].insert(j);
       }
     }
-    for (auto part : miss_parts) {
-      IdType rep_peer = FindPalcement(parts, access_cnt, device, part);
-      LOG(DEBUG) << "device " << device << " place part " << part << " into peer " << rep_peer;
-      parts[rep_peer].insert(part);
-      access_cnt[device][rep_peer]++;
-      access_matrix[device][part] = rep_peer;
+    asc_degree_gpu_order[i] = std::make_tuple(
+        i, static_cast<int>(neighbor_adjacency[i].size()));
+  }
+  // sort nodes by ascending order to iterate
+  std::sort(asc_degree_gpu_order.begin(), asc_degree_gpu_order.end(),
+      [](auto x, auto y) {
+        if (std::get<1>(x) != std::get<1>(y)) {
+          return std::get<1>(x) < std::get<1>(y);
+        }
+        return std::get<0>(x) < std::get<0>(y);
+      });
+  std::stringstream ss;
+  for (auto item : asc_degree_gpu_order) {
+    ss << std::get<0>(item) << " ";
+  }
+  LOG(INFO) << "new node order to iterate: " << ss.str();
+  // iterator for each GPU ctx
+  for (auto item : asc_degree_gpu_order) {
+    int i = std::get<0>(item);
+    // get can not access parts for GPU i
+    std::vector<int> can_not_access_parts =
+      (parts_universal_set - can_access_parts[i]);
+    // sort it by default degree
+    std::sort(can_not_access_parts.begin(), can_not_access_parts.end(),
+        [&neighbor_adjacency](auto x, auto y) {
+          if (neighbor_adjacency[x].size() != neighbor_adjacency[y].size()) {
+            return neighbor_adjacency[x].size() < neighbor_adjacency[y].size();
+          }
+          return x < y;
+        });
+    for (auto need_part : can_not_access_parts) {
+      // id, stored_parts_size, need_score, if_same_part_in_neighbors, bandwidth
+      std::vector<std::tuple<int, int, int, int, double>> tmp_vec;
+      // iterate GPU_i neighbors
+      for(auto j : neighbor_adjacency[i]) {
+        int need_score = 0;
+        for (auto k : neighbor_adjacency[j]) {
+          if(!can_access_parts[k].count(need_part)) {
+            ++need_score;
+          }
+        }
+        tmp_vec.emplace_back(j, store_parts[j].size(), need_score,
+            can_access_parts[j].count(need_part),
+            bandwidth_matrix[i][j] / (access_count[i][j] + 1));
+      }
+      std::sort(tmp_vec.begin(), tmp_vec.end(), [](auto x, auto y){
+            // stored_parts_size
+            if (std::get<1>(x) != std::get<1>(y)) {
+              return std::get<1>(x) < std::get<1>(y);
+            }
+            // need_score
+            if (std::get<2>(x) != std::get<2>(y)) {
+              return std::get<2>(x) > std::get<2>(y);
+            }
+            // if_same_part_in_neighbors 0 or 1
+            if (std::get<3>(x) != std::get<3>(y)) {
+              return std::get<3>(x) < std::get<3>(y);
+            }
+            // bandwidth
+            if (std::get<4>(x) != std::get<4>(y)) {
+              return std::get<4>(x) > std::get<4>(y);
+            }
+            return std::get<0>(x) < std::get<0>(y);
+          });
+      int choose_gpu_id = std::get<0>(tmp_vec.front());
+      store_parts[choose_gpu_id].insert(need_part);
+      // update can access parts for choose_gpu_id neighbors
+      for (auto neighbor : neighbor_adjacency[choose_gpu_id]) {
+        can_access_parts[neighbor].insert(need_part);
+      }
+    }
+    // choose part in which GPU to access
+    assert(can_access_parts[i].size() == num_ctx);
+    for (int j = 0; j < num_ctx; ++j) {
+      int which_gpu;
+      double max_bandwidth = 0.0;
+      for(auto neighbor : neighbor_adjacency[i]) {
+        if (store_parts[neighbor].count(j)) {
+          double tmp_bandwidth =
+            bandwidth_matrix[i][neighbor] / (access_count[i][neighbor] + 1);
+          if (tmp_bandwidth > max_bandwidth) {
+            max_bandwidth = tmp_bandwidth;
+            which_gpu = neighbor;
+          }
+        }
+      }
+      access_part_ctx[i][j] = which_gpu;
+      access_count[i][which_gpu] += 1;
     }
   }
+
   std::vector<DistGraph::GroupConfig> configs;
-  for (int i = 0; i < _ctxes.size(); i++) {
+  for (int i = 0; i < num_ctx; i++) {
     auto ctx = _ctxes[i];
     IdType device = ctx.device_id;
-    std::vector<IdType> part_ids(parts[device].begin(), parts[device].end());
-    std::vector<Context> group;
-    for (int j = 0; j < _ctxes.size(); j++) {
-      group.push_back(GPU(access_matrix[device][j]));
+    CHECK_EQ(i, device);
+    std::vector<IdType> part_ids(store_parts[device].begin(),
+        store_parts[device].end());
+    std::vector<Context> ctx_group(num_ctx);
+    for (int j = 0; j < num_ctx; ++j) {
+      ctx_group[j] = GPU(access_part_ctx[device][j]);
     }
-    configs.emplace_back(ctx, part_ids, group);
+    configs.emplace_back(ctx, part_ids, ctx_group);
   }
   return configs;
-}
-
-IdType PartitionSolver::FindPalcement(
-  const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
-  IdType device, IdType part) const {
-  std::vector<IdType> peers;
-  for (IdType peer = 0; peer < _ctxes.size(); peer++) {
-    if (_topo_info.nvlink_matrix[device][peer]) {
-      peers.push_back(peer);
-    }
-  }
-  CHECK(peers.size() > 0);
-  return ChoosePeer(parts, access_cnt, device, peers, false);
-}
-
-IdType PartitionSolver::ChoosePeer(
-  const std::set<IdType> parts[], IdType access_cnt[][kMaxDevice],
-  IdType device, std::vector<IdType> peers, bool exist) const {
-  if (peers.empty()) {
-    return static_cast<IdType>(-1);
-  }
-  std::vector<std::tuple<IdType, IdType, double>> weight;
-  for (auto peer : peers) {
-    double bw = _topo_info.bandwitdh_matrix[device][peer];
-    bw /= access_cnt[device][peer] + 1;
-    weight.push_back({peer, parts[peer].size(), bw});
-  }
-  std::sort(weight.begin(), weight.end(), [&](auto x, auto y) {
-    if (!exist && std::get<1>(x) != std::get<1>(y)) {
-      return std::get<1>(x) < std::get<1>(y);
-    } else {
-      return std::get<2>(x) > std::get<2>(y);
-    }
-  });
-  return std::get<0>(weight.front());
 }
 
 void PartitionSolver::DetectTopo_child(const std::string &topo_file) {
@@ -384,7 +428,7 @@ void PartitionSolver::DetectTopo_child(const std::string &topo_file) {
     CUDA_CALL(cudaMalloc(&buffersD2D[device], nbytes));
     CUDA_CALL(cudaStreamCreateWithFlags(&stream[device], cudaStreamNonBlocking));
     for (int peer = 0; peer < num_device; peer++) {
-      topo_info.bandwitdh_matrix[device][peer] = 0;
+      topo_info.bandwidth_matrix[device][peer] = 0;
       if (device == peer) {
         topo_info.nvlink_matrix[device][peer] = 1;
         continue;
@@ -414,9 +458,9 @@ void PartitionSolver::DetectTopo_child(const std::string &topo_file) {
         CUDA_CALL(cudaStreamSynchronize(stream[device]));
         auto sec = t0.Passed();
         if (device == peer) {
-          topo_info.bandwitdh_matrix[device][peer] = 2 * nbytes / sec / 1e9;
+          topo_info.bandwidth_matrix[device][peer] = 2 * nbytes / sec / 1e9;
         } else {
-          topo_info.bandwitdh_matrix[device][peer] = nbytes / sec / 1e9;
+          topo_info.bandwidth_matrix[device][peer] = nbytes / sec / 1e9;
         }
       }
     }
@@ -445,7 +489,8 @@ void PartitionSolver::DetectTopo_child(const std::string &topo_file) {
     ofs << " (UUID: ";
     for (int j = 0; j < 16; j++) {
       uint8_t x = prop.uuid.bytes[j];
-      ofs << std::hex << static_cast<int>(x);
+      ofs << std::hex << std::setw(2) << std::setfill('0')
+        << static_cast<int>(x) << std::setfill(' ');
     }
     ofs << ")\n";
   }
@@ -459,7 +504,7 @@ void PartitionSolver::DetectTopo_child(const std::string &topo_file) {
   ofs << "\n\nBandwidth Matrix\n";
   for (int i = 0; i < num_device; i++) {
     for (int j = 0; j < num_device; j++) {
-      ofs << std::setw(8) << std::fixed << std::setprecision(2) << topo_info.bandwitdh_matrix[i][j] << " ";
+      ofs << std::setw(8) << std::fixed << std::setprecision(2) << topo_info.bandwidth_matrix[i][j] << " ";
     }
     ofs << "\n";
   }
@@ -489,7 +534,7 @@ void PartitionSolver::LoadTopoFromFile(std::ifstream &ifs) {
         std::getline(ifs, line);
         std::stringstream ss(line, std::ios::in);
         for (int j = 0; j < num_device; j++) {
-          ss >> universal_topo_info.bandwitdh_matrix[i][j];
+          ss >> universal_topo_info.bandwidth_matrix[i][j];
         }
       }
     }
@@ -516,7 +561,7 @@ void PartitionSolver::LoadTopoFromFile(std::ifstream &ifs) {
     for (int j = 0; j < _ctxes.size(); j++) {
       int peer = devices[j];
       _topo_info.nvlink_matrix[i][j] = universal_topo_info.nvlink_matrix[device][peer];
-      _topo_info.bandwitdh_matrix[i][j] = universal_topo_info.bandwitdh_matrix[device][peer];
+      _topo_info.bandwidth_matrix[i][j] = universal_topo_info.bandwidth_matrix[device][peer];
     }
   }
 }
