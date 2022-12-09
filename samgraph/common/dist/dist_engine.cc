@@ -43,6 +43,8 @@
 #include "pre_sampler.h"
 #include "dist_um_sampler.h"
 
+#define ARCH6_SINGLE_SAMPLER_REMOTE_GRAPH
+
 namespace samgraph {
 namespace common {
 namespace dist {
@@ -312,8 +314,12 @@ void DistEngine::SampleInit(int worker_id, Context ctx) {
   if (RunConfig::unified_memory) {
     auto um_ctx = ctx;
     um_ctx.device_type = kGPU_UM;
+#ifndef ARCH6_SINGLE_SAMPLER_REMOTE_GRAPH
     RunConfig::unified_memory_ctxes = {um_ctx, CPU()};
-
+#else
+    CHECK_EQ(um_ctx.device_id, 0) << "sampler should be gpu:0";
+    RunConfig::unified_memory_ctxes = {um_ctx, GPU_UM(1)};
+#endif
     std::stringstream ss;
     ss << "unified_memory_ctxes : ";
     for (auto ctx : RunConfig::unified_memory_ctxes) ss << ctx << " ";

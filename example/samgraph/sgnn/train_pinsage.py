@@ -114,6 +114,11 @@ def parse_args(default_run_config):
     argparser.add_argument('--use-dist-graph', action="store_true",
                             default=False)
 
+    argparser.add_argument('--unified-memory', action='store_true',
+                           default=False)
+    argparser.add_argument('--unified-memory-percentage', type=float, nargs='+', default=argparse.SUPPRESS)
+
+
 
     return vars(argparser.parse_args())
 
