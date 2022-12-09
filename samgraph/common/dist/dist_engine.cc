@@ -43,7 +43,7 @@
 #include "pre_sampler.h"
 #include "dist_um_sampler.h"
 
-#define ARCH6_SINGLE_SAMPLER_REMOTE_GRAPH
+// #define ARCH6_SINGLE_SAMPLER_REMOTE_GRAPH
 
 namespace samgraph {
 namespace common {
