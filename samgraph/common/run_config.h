@@ -104,6 +104,8 @@ struct RunConfig {
 
   // if use dist graph
   static bool                 use_dist_graph;
+  static int                  dist_graph_part_cpu;
+  
 
   static inline bool UseGPUCache() {
     return cache_percentage > 0 && run_arch != kArch1;

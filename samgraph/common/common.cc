@@ -402,6 +402,7 @@ TensorPtr Tensor::UMCopyTo(TensorPtr source, std::vector<Context> ctxes, std::ve
       Device::Get(ctx)->AllocWorkspace(ctx, nbytes, Constant::kAllocNoScale);
   tensor->_name = name;
   for (auto um_ctx : ctxes) {
+    if (um_ctx.device_type == kGPU || um_ctx.device_type == kGPU_UM)
       Device::Get(um_ctx)->CopyDataFromTo(source->_data, 0, tensor->_data, 0, nbytes, source->_ctx, um_ctx);
   }
 

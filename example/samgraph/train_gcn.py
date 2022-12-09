@@ -338,6 +338,10 @@ def run():
     sam.dump_trace()
     sam.shutdown()
 
+    print(f"memory:graph={sam.get_log_init_value(sam.kLogInitL1GraphMemory)}")
+    print(f"memory:feature={sam.get_log_init_value(sam.kLogInitL1FeatMemory)}")
+    print(f"memory:workspace_total={sam.get_log_init_value(sam.kLogInitL1WorkspaceTotalMemory)}")
+
 
 if __name__ == '__main__':
     run()

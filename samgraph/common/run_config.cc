@@ -93,6 +93,7 @@ UMPolicy             RunConfig::unified_memory_policy          = UMPolicy::kDefa
 std::vector<Context> RunConfig::unified_memory_ctxes;
 
 bool                 RunConfig::use_dist_graph                 = false;
+int                  RunConfig::dist_graph_part_cpu            = 0;
 
 void RunConfig::LoadConfigFromEnv() {
   if (IsEnvSet(Constant::kEnvSamBackCudaLaunchBlocking)) {

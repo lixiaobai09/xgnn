@@ -195,8 +195,13 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
   _dataset->valid_set = Tensor::CopyTo(_dataset->valid_set, CPU(), stream);
   _dataset->test_set = Tensor::CopyTo(_dataset->test_set, CPU(), stream);
   if ((sampler_ctx.device_type == kGPU) && (RunConfig::use_dist_graph == false)) {
-    _dataset->indptr = Tensor::CopyTo(_dataset->indptr, sampler_ctx, stream, Constant::kAllocNoScale);
-    _dataset->indices = Tensor::CopyTo(_dataset->indices, sampler_ctx, stream, Constant::kAllocNoScale);
+    if (!RunConfig::unified_memory) {
+      _dataset->indptr = Tensor::CopyTo(_dataset->indptr, sampler_ctx, stream, Constant::kAllocNoScale);
+      _dataset->indices = Tensor::CopyTo(_dataset->indices, sampler_ctx, stream, Constant::kAllocNoScale);
+    } else {
+      _dataset->indptr = Tensor::UMCopyTo(_dataset->indptr, RunConfig::unified_memory_ctxes);
+      _dataset->indices = Tensor::UMCopyTo(_dataset->indices, RunConfig::unified_memory_ctxes);
+    }
     if (RunConfig::sample_type == kWeightedKHop || RunConfig::sample_type == kWeightedKHopHashDedup) {
       _dataset->prob_table = Tensor::CopyTo(_dataset->prob_table, sampler_ctx, stream, Constant::kAllocNoScale);
       _dataset->alias_table = Tensor::CopyTo(_dataset->alias_table, sampler_ctx, stream, Constant::kAllocNoScale);
@@ -304,6 +309,20 @@ void DistEngine::SampleInit(int worker_id, Context ctx) {
     LOG(FATAL) << "DistEngine already initialized!";
     return;
   }
+  if (RunConfig::unified_memory) {
+    auto um_ctx = ctx;
+    um_ctx.device_type = kGPU_UM;
+    RunConfig::unified_memory_ctxes = {um_ctx, CPU()};
+
+    std::stringstream ss;
+    ss << "unified_memory_ctxes : ";
+    for (auto ctx : RunConfig::unified_memory_ctxes) ss << ctx << " ";
+    ss << " | unified_memory_percentages : ";
+    for (auto percent : RunConfig::unified_memory_percentages) ss << percent << " ";
+    LOG(INFO) << ss.str();
+    CHECK_EQ(RunConfig::unified_memory_ctxes.size(), RunConfig::unified_memory_percentages.size());
+  }
+
   Timer t0;
   _dist_type = DistType::Sample;
   RunConfig::sampler_ctx = ctx;
