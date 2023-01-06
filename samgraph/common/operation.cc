@@ -198,6 +198,22 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
     }
   }
 
+  if (configs.count("part_cache") > 0 && configs["part_cache"] == "True") {
+    if (RC::run_arch == kArch6) {
+      RC::part_cache = true;
+    } else {
+      LOG(FATAL) << "partition cache can only be used in arch6";
+    }
+  }
+
+  if (configs.count("gpu_extract") > 0 && configs["gpu_extract"] == "True") {
+    if (RC::run_arch == kArch6) {
+      RC::gpu_extract = true;
+    } else {
+      LOG(WARNING) << "gpu extract is only supported in arch6";
+    }
+  }
+
   if(configs.count("unified_memory") > 0 && configs["unified_memory"] == "True") {
     RunConfig::unified_memory = true;
     LOG(DEBUG) << "unified_memory=True";

@@ -19,6 +19,7 @@
 #define SAMGRAPH_CUDA_CACHE_MANAGER_H
 
 #include "../common.h"
+#include "dist_graph.h"
 
 namespace samgraph {
 namespace common {
@@ -30,6 +31,13 @@ class GPUCacheManager {
                   const void* cpu_src_data, DataType dtype, size_t dim,
                   const IdType* nodes, size_t num_nodes,
                   double cache_percentage);
+  // balance partition cache for arch6
+  GPUCacheManager(IdType worker_id, 
+                  Context sampler_ctx, Context trainer_ctx, 
+                  const void* cpu_src_data, DataType dtype, size_t dim,
+                  const IdType* nodes, size_t num_nodes,
+                  double cache_percentage,
+                  DeviceP2PComm *comm);
   ~GPUCacheManager();
 
   /**
@@ -56,9 +64,16 @@ class GPUCacheManager {
   void CombineMissData(void* output, const void* miss,
                        const IdType* miss_dst_index, const size_t num_miss,
                        StreamHandle stream);
+  void GPUExtractMissData(void *output, const IdType *miss_src_index,
+                          const IdType *miss_dst_index, const size_t num_miss, 
+                          StreamHandle stream);
   void CombineCacheData(void* output, const IdType* cache_src_index,
                         const IdType* cache_dst_index, const size_t num_cache,
                         StreamHandle stream);
+
+  void CountLocalCache(size_t task_key, const IdType *cache_src_index, 
+                       const size_t num_cache, const size_t num_nodes,
+                       StreamHandle stream);
 
  private:
   Context _sampler_ctx;
@@ -76,6 +91,8 @@ class GPUCacheManager {
   void* _trainer_cache_data;
 
   IdType* _sampler_gpu_hashtable;
+
+  DistArray *_part_cache = nullptr;
 };
 
 class GPUDynamicCacheManager {

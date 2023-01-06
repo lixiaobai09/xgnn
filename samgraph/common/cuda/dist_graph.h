@@ -24,12 +24,90 @@
 #include <set>
 #include <iostream>
 #include <fstream>
+#include <bitset>
 
 #include "../common.h"
 
 namespace samgraph {
 namespace common {
 namespace cuda {
+
+constexpr IdType kMaxDevice = 32;
+
+class DeviceP2PComm {
+ public:
+  static void Init(int num_worker);
+  static void Create(int worker_id, int device_id);
+
+  static auto Get() { CHECK(_p2p_comm->_init); return _p2p_comm; }
+  auto Rank() const { return _rank; }
+  auto CommSize() const { return _comm_size; }
+  auto DevId() const { return _dev; }
+  auto Peer(IdType peer) const { CHECK(peer < _comm_size); return _peers[peer]; }
+
+  void Barrier() { pthread_barrier_wait(&_shared_data->barrier); }
+
+  cudaIpcMemHandle_t *IpcMemHandle(IdType rk) {
+    return &_shared_data->mem_handle[rk];
+  }
+
+  ~DeviceP2PComm();
+ private:
+  DeviceP2PComm(int num_worker);
+  std::vector<std::bitset<kMaxDevice>> SplitClique(int device_id, int &my_clique);
+  void FindClique(std::bitset<kMaxDevice> clique, 
+                  std::bitset<kMaxDevice> neighbor, 
+                  std::bitset<kMaxDevice> none,
+                  std::bitset<kMaxDevice> &max_clique);
+
+  struct SharedData {
+    pthread_barrier_t barrier;
+    int p2p_matrix[kMaxDevice][kMaxDevice];
+    cudaIpcMemHandle_t mem_handle[kMaxDevice];
+  };
+
+  bool _init;
+  IdType _dev;
+  IdType _peers[kMaxDevice];
+  IdType _comm_size;
+  IdType _rank;
+  SharedData *_shared_data;
+
+  static DeviceP2PComm *_p2p_comm;
+};
+
+class DistArray {
+ public:
+  DistArray(void *devptr, DeviceP2PComm *comm, StreamHandle stream = 0);
+
+  auto Rank() const { return _comm->Rank(); }
+  auto CommSize() const { return _comm->CommSize(); }
+
+  ~DistArray();
+
+  // device handle in cuda kernel
+  struct DeviceHandle {
+    template<typename T>
+    inline __device__ T Get(IdType rk, IdType idx) {
+      assert(rk < comm_size);
+      assert(devptrs != nullptr);
+      auto ptr = static_cast<T *>(devptrs[rk]);
+      return ptr[idx];
+    }
+    
+    IdType rank, comm_size;
+    void **devptrs; 
+  };
+  DeviceHandle GetDeviceHandle() const {
+    return DistArray::DeviceHandle{_comm->Rank(), _comm->CommSize(), _devptrs_d};
+  }
+
+ private:
+  void **_devptrs_d;
+  void **_devptrs_h;
+  DeviceP2PComm *_comm;
+};
+
 
 class DeviceDistGraph {
  public:
@@ -90,7 +168,6 @@ class DeviceNormalGraph {
   IdType _num_node;
 };
 
-constexpr int kMaxDevice = 32;
 
 class DistGraph {
  public:

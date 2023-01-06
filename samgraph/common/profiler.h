@@ -133,6 +133,7 @@ enum LogEpochItem {
   kLogEpochTotalTime,
   kLogEpochFeatureBytes,
   kLogEpochMissBytes,
+  kLogEpochLocalCacheBytes, // for arch6, partition cache
   kLogEpochNumSample,
 
   kNumLogEpochItems,

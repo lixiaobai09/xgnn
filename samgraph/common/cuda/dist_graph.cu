@@ -1,5 +1,7 @@
 #include "dist_graph.h"
 
+#include <fcntl.h>
+#include <sys/shm.h>
 #include <sys/mman.h>
 #include <sys/unistd.h>
 #include <sys/wait.h>
@@ -35,6 +37,198 @@ std::vector<T> operator- (const std::set<T> &a, const std::set<T> &b) {
 };
 
 }; // namespace
+
+DeviceP2PComm *DeviceP2PComm::_p2p_comm = nullptr;
+
+DeviceP2PComm::DeviceP2PComm(int num_worker) 
+  : _init(false), _dev(Constant::kEmptyKey), _comm_size(num_worker),
+    _rank(Constant::kEmptyKey) {
+  std::memset(_peers, 0xff, sizeof(_peers));
+  _shared_data = static_cast<SharedData *>(mmap(
+    NULL, sizeof(SharedData), PROT_WRITE | PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0));
+  pthread_barrierattr_t attr;
+  pthread_barrierattr_init(&attr);
+  pthread_barrierattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+  pthread_barrier_init(&_shared_data->barrier, &attr, _comm_size);
+}
+
+DeviceP2PComm::~DeviceP2PComm() {
+  munmap(_shared_data, sizeof(SharedData));
+  _init = false;
+}
+
+void DeviceP2PComm::Init(int num_worker) {
+  if (_p2p_comm == nullptr)
+    _p2p_comm = new DeviceP2PComm(num_worker);
+}
+
+void DeviceP2PComm::Create(int worker_id, int device_id) {
+  CHECK_EQ(worker_id, device_id);
+  CHECK_NE(_p2p_comm, nullptr);
+  // get p2p access matrix
+  CUDA_CALL(cudaSetDevice(device_id));
+  for (IdType i = 0; i < _p2p_comm->_comm_size; i++) {
+      int& flag = _p2p_comm->_shared_data->p2p_matrix[device_id][i];
+    if (i != device_id) {
+      CUDA_CALL(cudaDeviceCanAccessPeer(&flag, device_id, i));
+    } else {
+      flag = 1;
+    }
+  }
+  _p2p_comm->Barrier();
+  // find p2p clique
+  int my_clique;
+  auto cliques = _p2p_comm->SplitClique(worker_id, my_clique);
+  auto& clique = cliques[my_clique];
+  if (cliques.size() > 1) {
+    // need to split p2p communication
+    std::stringstream ss;
+    int new_rank = -1;
+    int new_comm_size = clique.count();
+    ss << "p2pComm";
+    for (int i = 0, rk = 0; i < _p2p_comm->_comm_size; i++) {
+      if (clique[i]) {
+        if (i == device_id) new_rank = rk;
+        ss << "-" << i;
+        rk++;
+      }
+    }
+    SharedData *shared_data = nullptr;
+    if (new_rank == 0) {
+      shm_unlink(ss.str().c_str());
+      auto shm_fd = shm_open(ss.str().c_str(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+      CHECK_NE(shm_fd, -1);
+      int err = ftruncate(shm_fd, sizeof(SharedData));
+      CHECK_NE(err, -1);
+      shared_data = static_cast<SharedData *>(mmap(
+        NULL, sizeof(SharedData), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0));
+      CHECK_NE(shared_data, MAP_FAILED);
+      pthread_barrierattr_t attr;
+      pthread_barrierattr_init(&attr);
+      pthread_barrierattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+      pthread_barrier_init(&shared_data->barrier, &attr, new_comm_size);
+      _p2p_comm->Barrier();
+    } else {
+      _p2p_comm->Barrier();
+      auto shm_fd = shm_open(ss.str().c_str(), O_RDWR, S_IRUSR | S_IWUSR);
+      CHECK_NE(shm_fd, -1);
+      shared_data = static_cast<SharedData *>(mmap(
+        NULL, sizeof(SharedData), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0));
+      CHECK_NE(shared_data, MAP_FAILED);
+    }
+    munmap(_p2p_comm->_shared_data, sizeof(SharedData));
+    _p2p_comm->_shared_data = shared_data;
+    _p2p_comm->_comm_size = new_comm_size;
+    _p2p_comm->_rank = new_rank;
+  } else { 
+    // each pair gpu can p2p access
+    _p2p_comm->_rank = worker_id;
+  }
+  _p2p_comm->_dev = device_id;
+  for (int i = 0, j = 0; i < clique.size(); i++) {
+    if (clique[i])
+      _p2p_comm->_peers[j++] = i;
+  }
+  _p2p_comm->Barrier();
+  _p2p_comm->_init = true;
+}
+
+std::vector<std::bitset<kMaxDevice>> DeviceP2PComm::SplitClique(int device_id, int &my_clique) {
+  std::bitset<kMaxDevice> gpu_cnt = 0;
+  std::vector<std::bitset<kMaxDevice>> cliques;
+  // using gpu_peer_info_t = std::pair<std::bitset<kMaxDevice>, IdType>;
+  for (IdType i = 0; i < _p2p_comm->_comm_size && gpu_cnt.count() < _p2p_comm->_comm_size; i++) {
+    if (gpu_cnt[i]) continue;    
+    std::bitset<kMaxDevice> gpu1, cur, none, max_clique;
+    for (IdType j = 0; j < _p2p_comm->_comm_size; j++) {
+      if (_p2p_comm->_shared_data->p2p_matrix[i][j])
+        gpu1[j] = 1;
+    }
+    cur[i] = 1;
+    gpu1 ^= cur;
+    gpu1 = gpu1 & (~gpu_cnt);
+    FindClique(cur, gpu1, none, max_clique);
+    cliques.push_back(max_clique);
+    gpu_cnt |= max_clique;
+    if (max_clique[device_id])
+      my_clique = cliques.size() - 1;
+  }
+  // std::stringstream ss;
+  // for (auto clique : cliques) {
+  //   for (int i = 0; i < kMaxDevice; i++) {
+  //     if (clique[i]) ss << i << " ";
+  //   }
+  //   ss << "| ";
+  // }
+  // LOG(INFO) << "Cliques: " << ss.str();
+  return cliques;
+}
+
+void DeviceP2PComm::FindClique(std::bitset<kMaxDevice> clique, 
+                               std::bitset<kMaxDevice> neighbor, 
+                               std::bitset<kMaxDevice> none,
+                               std::bitset<kMaxDevice> &max_clique) {
+  if (!neighbor.count() && !none.count()) {
+    if (clique.count() > max_clique.count())
+      max_clique = clique;
+  }
+  if (!neighbor.count()) return;
+  auto get_neighbor = [&](IdType dev) {
+    std::bitset<kMaxDevice> nb;
+    for (IdType i = 0; i < _p2p_comm->_comm_size; i++) {
+      if (_p2p_comm->_shared_data->p2p_matrix[dev][i])
+        nb[i] = 1;
+    }
+    nb[dev] = 0;
+    return nb;
+  };
+  IdType pivot = neighbor._Find_first();
+  std::bitset<kMaxDevice> pivot_nb = get_neighbor(pivot);
+  auto next_nb = neighbor & (~pivot_nb);
+  for (IdType i = 0; i < _p2p_comm->_comm_size; i++) {
+    if (next_nb[i]) {
+      auto nb = get_neighbor(i);
+      auto clique_ = clique;
+      clique_[i] = 1;
+      FindClique(clique_, neighbor & nb, none & nb, max_clique);
+      neighbor[i] = 0;
+      none[i] = 1;
+    }
+  }
+}
+
+DistArray::DistArray(void *devptr, DeviceP2PComm *comm, StreamHandle stream) 
+  : _comm(comm)
+{
+  auto cu_stream = static_cast<cudaStream_t>(stream);
+  CUDA_CALL(cudaSetDevice(_comm->DevId()));
+  CUDA_CALL(cudaMallocHost((void**)&_devptrs_h, sizeof(void*) * CommSize()));
+  CUDA_CALL(cudaMalloc((void**)&_devptrs_d, sizeof(void*) * CommSize()));
+  CUDA_CALL(cudaIpcGetMemHandle(_comm->IpcMemHandle(Rank()), devptr));
+  _comm->Barrier();
+  for (size_t i = 0; i < CommSize(); i++) {
+    if (i != Rank()) {
+      CUDA_CALL(cudaIpcOpenMemHandle(&_devptrs_h[i], *_comm->IpcMemHandle(i), cudaIpcMemLazyEnablePeerAccess));
+    } else {
+      _devptrs_h[i] = devptr;
+    }
+  }
+  _comm->Barrier();
+  CUDA_CALL(cudaMemcpyAsync(_devptrs_d, _devptrs_h, sizeof(void*) * CommSize(), cudaMemcpyDefault, cu_stream));
+  CUDA_CALL(cudaStreamSynchronize(cu_stream));
+}
+
+DistArray::~DistArray() {
+  for (size_t i = 0; i < CommSize(); i++) {
+    if (i != Rank()) {
+      CUDA_CALL(cudaIpcCloseMemHandle(_devptrs_h[i]));
+    }
+  }
+  CUDA_CALL(cudaFree(_devptrs_d));
+  CUDA_CALL(cudaFreeHost(_devptrs_h));
+  _devptrs_d = nullptr;
+  _devptrs_h = nullptr;
+}
 
 std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
 

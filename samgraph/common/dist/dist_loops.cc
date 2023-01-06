@@ -582,6 +582,57 @@ void DoFeatureCopy(TaskPtr task) {
   LOG(DEBUG) << "FeatureCopyHost2Device: process task with key " << task->key;
 }
 
+void DoGPUFeatureExtract(TaskPtr task) {
+  CHECK_EQ(RunConfig::run_arch, kArch6);
+  auto trainer_ctx = DistEngine::Get()->GetTrainerCtx();
+  auto stream = DistEngine::Get()->GetTrainerCopyStream();
+
+  auto dataset = DistEngine::Get()->GetGraphDataset();
+
+  auto feat_dim = dataset->feat->Shape()[1];
+  auto feat_type = dataset->feat->Type();
+  auto label_type = dataset->label->Type();
+
+  auto input_data = task->input_nodes->CPtr<IdType>();
+  auto output_data = task->output_nodes->CPtr<IdType>();
+  auto num_input = task->input_nodes->Shape()[0];
+  auto num_output = task->output_nodes->Shape()[0];
+
+  task->input_feat = Tensor::Empty(feat_type, {num_input, feat_dim}, trainer_ctx,
+                                   "task.input_feat_cuda_" + std::to_string(task->key));
+  task->output_label = Tensor::Empty(label_type, {num_output}, trainer_ctx,
+                                     "task.output_label_cuda_" + std::to_string(task->key));
+  LOG(DEBUG) << "DoGPUFeatureExtract input_feat gpu malloc " << ToReadableSize(task->input_feat->NumBytes())
+             << " output_label gpu malloc " << ToReadableSize(task->output_label->NumBytes());
+
+  if (RunConfig::option_empty_feat) {
+    cuda::GPUMockExtract(
+      task->input_feat->MutableData(), dataset->feat->Data(),
+      input_data, num_input, feat_dim, feat_type, 
+      trainer_ctx, stream, task->key
+    );
+  } else {
+    cuda::GPUExtract(
+      task->input_feat->MutableData(), dataset->feat->Data(),
+      input_data, num_input, feat_dim, feat_type,
+      trainer_ctx, stream, task->key
+    );
+  }
+  cuda::GPUExtract(
+    task->output_label->MutableData(), dataset->label->Data(),
+    output_data, num_output, 1, label_type,
+    trainer_ctx, stream, task->key
+  );
+  LOG(DEBUG) << "GPUFeatureExtract: process task with key " << task->key;
+
+  auto feat_nbytes = task->input_feat->NumBytes();
+  auto label_nbytes = task->output_label->NumBytes();
+  Profiler::Get().LogStep(task->key, kLogL1FeatureBytes, feat_nbytes);
+  Profiler::Get().LogStep(task->key, kLogL1LabelBytes, label_nbytes);
+  Profiler::Get().LogEpochAdd(task->key, kLogEpochFeatureBytes, feat_nbytes);
+  Profiler::Get().LogEpochAdd(task->key, kLogEpochMissBytes, feat_nbytes);
+}
+
 void DoCacheIdCopy(TaskPtr task) {
   auto trainer_ctx = DistEngine::Get()->GetTrainerCtx();
   auto copy_ctx = trainer_ctx;
@@ -907,8 +958,8 @@ void DoGPULabelExtract(TaskPtr task) {
 
   CHECK_EQ(output_nodes->Ctx().device_type, trainer_ctx.device_type);
   CHECK_EQ(output_nodes->Ctx().device_id, trainer_ctx.device_id);
-  CHECK_EQ(dataset->label->Ctx().device_type, trainer_ctx.device_type);
-  CHECK_EQ(dataset->label->Ctx().device_id, trainer_ctx.device_id);
+  // CHECK_EQ(dataset->label->Ctx().device_type, trainer_ctx.device_type);
+  // CHECK_EQ(dataset->label->Ctx().device_id, trainer_ctx.device_id);
 
   cuda::GPUExtract(label_dst, label_src, output_data, num_ouput, 1, label_type,
              trainer_ctx, trainer_copy_stream, task->key);
@@ -995,6 +1046,11 @@ void DoArch6GetCacheMissIndex(TaskPtr task) {
 
   CHECK_EQ(num_output_miss + num_output_cache, num_input);
 
+  if (RunConfig::part_cache) {
+    cache_manager->CountLocalCache(task->key, trainer_output_cache_src_index,
+        num_output_cache, num_input, stream);
+  }
+
   auto dtype = task->input_nodes->Type();
   // To be freed in task queue after serialization
   task->miss_cache_index.miss_src_index =
@@ -1045,6 +1101,8 @@ void DoArch6CacheFeatureCopy(TaskPtr task) {
 
   size_t num_output_miss = task->miss_cache_index.num_miss;
   size_t num_output_cache = task->miss_cache_index.num_cache;
+
+  // LOG(INFO) << "Miss, Hit: " << num_input << " " << num_output_miss << " " << num_output_cache;
 
   IdType *trainer_output_miss_src_index =
       task->miss_cache_index.miss_src_index->Ptr<IdType>();
@@ -1145,6 +1203,79 @@ void DoArch6CacheFeatureCopy(TaskPtr task) {
       GetTensorBytes(feat_type, {num_output_miss, feat_dim}));
 
   LOG(DEBUG) << "DoCacheFeatureCopy: process task with key " << task->key;
+}
+
+void DoArch6GPUCacheFeatureCopy(TaskPtr task) {
+  auto trainer_ctx = DistEngine::Get()->GetTrainerCtx();
+  auto trainer_device = Device::Get(trainer_ctx);
+  auto stream = DistEngine::Get()->GetTrainerCopyStream();
+
+  auto dataset = DistEngine::Get()->GetGraphDataset();
+  auto cache_manager = DistEngine::Get()->GetGPUCacheManager();
+
+  auto input_nodes = task->input_nodes;
+  auto feat = dataset->feat;
+  auto feat_dim = feat->Shape()[1];
+  auto feat_type = feat->Type();
+
+  auto num_input = input_nodes->Shape()[0];
+
+  CHECK(input_nodes->Ctx() == trainer_ctx);
+
+  auto train_feat = Tensor::Empty(feat_type, {num_input, feat_dim}, trainer_ctx, 
+                                  "task.train_feat_cuda_" + std::to_string(task->key));
+  // 0. Get index of miss data and cache data
+  Timer t0;
+
+  size_t num_output_miss = task->miss_cache_index.num_miss;
+  size_t num_output_cache = task->miss_cache_index.num_cache;
+
+  auto trainer_output_miss_src_index = 
+      task->miss_cache_index.miss_src_index->Ptr<IdType>();
+  auto trainer_output_miss_dst_index = 
+      task->miss_cache_index.miss_dst_index->Ptr<IdType>();
+  auto trainer_output_cache_src_index = 
+      task->miss_cache_index.cache_src_index->Ptr<IdType>();
+  auto trainer_output_cache_dst_index = 
+      task->miss_cache_index.cache_dst_index->Ptr<IdType>();
+
+  CHECK_EQ(num_output_miss + num_output_cache, num_input);
+  double get_index_time = t0.Passed();
+
+  // 1. Extract the miss data
+  Timer t1;
+  
+  cache_manager->GPUExtractMissData(train_feat->MutableData(), 
+                                    trainer_output_miss_src_index, trainer_output_miss_dst_index, 
+                                    num_output_miss, stream);
+  trainer_device->StreamSync(trainer_ctx, stream);
+  double extract_miss_time = t1.Passed();
+
+  // 2. Combine cache data
+  Timer t2;
+  cache_manager->CombineCacheData(train_feat->MutableData(),
+                                  trainer_output_cache_src_index, trainer_output_cache_dst_index, 
+                                  num_output_cache, stream);
+  trainer_device->StreamSync(trainer_ctx, stream);
+
+  double combine_cache_time = t2.Passed();
+  task->input_feat = train_feat;
+
+  task->miss_cache_index.miss_src_index = nullptr;
+  task->miss_cache_index.miss_dst_index = nullptr;
+  task->miss_cache_index.cache_src_index = nullptr;
+  task->miss_cache_index.cache_dst_index = nullptr;
+
+  auto miss_nbytes = GetTensorBytes(feat_type, {num_output_miss, feat_dim});
+  Profiler::Get().LogStep(task->key, kLogL1FeatureBytes, train_feat->NumBytes());
+  Profiler::Get().LogStep(task->key, kLogL1MissBytes, miss_nbytes);
+  Profiler::Get().LogStep(task->key, kLogL3CacheGetIndexTime, get_index_time); // t0
+  Profiler::Get().LogStep(task->key, kLogL3CacheExtractMissTime, extract_miss_time); // t1
+  Profiler::Get().LogStep(task->key, kLogL3CacheCombineCacheTime, combine_cache_time); // t2
+  Profiler::Get().LogEpochAdd(task->key, kLogEpochFeatureBytes, train_feat->NumBytes());
+  Profiler::Get().LogEpochAdd(task->key, kLogEpochMissBytes, miss_nbytes);
+
+  LOG(DEBUG) << "DoGPUCacheFeatureCopy: process task with key " << task->key;
 }
 
 } // dist
