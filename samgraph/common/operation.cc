@@ -191,6 +191,11 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
       && configs["use_dist_graph"] == "True") {
     RC::use_dist_graph = true;
     LOG(DEBUG) << "use_dist_graph=True";
+
+    if (configs.count("dist_graph_part_cpu") > 0) {
+      RC::dist_graph_part_cpu = std::stoi(configs["dist_graph_part_cpu"]);
+      LOG(DEBUG) << "dist graph partition graph to CPU, GPU/(GPU+CPU) = 1/" << RC::dist_graph_part_cpu;
+    }
   }
 
   if(configs.count("unified_memory") > 0 && configs["unified_memory"] == "True") {
@@ -222,7 +227,7 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
     }
     LOG(INFO) << "unified_memory_policy" << " " << configs["um_policy"];
   }
-  if(RunConfig::unified_memory == true) {
+  if(RunConfig::unified_memory == true && RunConfig::run_arch != kArch6) {
     RunConfig::unified_memory_ctxes.clear();
     if (configs.count("unified_memory_ctx") > 0) {
       std::stringstream ss(configs["unified_memory_ctx"]);

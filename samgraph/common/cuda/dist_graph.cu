@@ -10,9 +10,11 @@
 #include <algorithm>
 #include <fstream>
 #include <regex>
+#include <iostream>
 
 #include "../device.h"
 #include "../timer.h"
+#include "../run_config.h"
 
 
 namespace samgraph {
@@ -47,12 +49,15 @@ void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
     part_edge_count += num_edge;
   }
 
+  std::stringstream ctx_name;
+  ctx_name << ctx;
+
   IdType indptr_size = (num_node / num_part +
       (part_id < num_node % num_part? 1 : 0) + 1);
   _part_indptr[part_id] = Tensor::Empty(kI32, {indptr_size}, CPU(),
-      "indptr in device:" + std::to_string(ctx.device_id));
+      "indptr in device:cpu" );
   _part_indices[part_id] = Tensor::Empty(kI32, {part_edge_count}, CPU(),
-      "indices in device:" + std::to_string(ctx.device_id));
+      "indices in device:cpu");
   part_edge_count = 0;
 
   for (IdType i = part_id; i < num_node; i += num_part) {
@@ -67,10 +72,14 @@ void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
   }
   _part_indptr[part_id]->Ptr<IdType>()[indptr_size - 1] = part_edge_count;
 
-  _part_indptr[part_id] = Tensor::CopyTo(_part_indptr[part_id], ctx,
-      nullptr, Constant::kAllocNoScale);
-  _part_indices[part_id] = Tensor::CopyTo(_part_indices[part_id], ctx,
-      nullptr, Constant::kAllocNoScale);
+  if (ctx.device_type != kCPU) {
+    LOG(DEBUG) << "Load Graph to GPU: " << ctx << " store " 
+               << ToReadableSize(_part_indices[part_id]->NumBytes() + _part_indptr[part_id]->NumBytes());
+    _part_indptr[part_id] = Tensor::CopyTo(_part_indptr[part_id], ctx,
+        nullptr, ctx_name.str(), Constant::kAllocNoScale);
+    _part_indices[part_id] = Tensor::CopyTo(_part_indices[part_id], ctx,
+        nullptr, ctx_name.str(), Constant::kAllocNoScale);
+  }
 }
 
 void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
@@ -87,8 +96,15 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   _part_indices.clear();
   _part_indices.resize(num_part, nullptr);
 
-  for (IdType part_id : part_ids) {
-    _DatasetPartition(dataset, sampler_ctx, part_id, num_part);
+  if (RunConfig::dist_graph_part_cpu < 1) {
+    for (IdType part_id : part_ids) {
+      _DatasetPartition(dataset, sampler_ctx, part_id, num_part);
+    }
+  } else {
+    auto ctx_group = _group_configs[sampler_id].ctx_group;
+    for (int i = 0; i < part_ids.size(); i++) {
+      _DatasetPartition(dataset, ctx_group[i], part_ids[i], num_part);
+    }
   }
 
   auto DataIpcShare = [&](std::vector<TensorPtr> &part_data,
@@ -125,23 +141,25 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
 
   };
 
-  IdType num_node = dataset->num_node;
-  std::vector<size_t> part_size_vec(num_part);
-  for (size_t i = 0; i < num_part; ++i) {
-    part_size_vec[i] = (num_node / num_part +
-        (i < num_node % num_part? 1 : 0) + 1);
-  }
-  DataIpcShare(_part_indptr, part_size_vec, "dataset part indptr");
+  if (RunConfig::dist_graph_part_cpu < 1) {
+    IdType num_node = dataset->num_node;
+    std::vector<size_t> part_size_vec(num_part);
+    for (size_t i = 0; i < num_part; ++i) {
+      part_size_vec[i] = (num_node / num_part +
+          (i < num_node % num_part? 1 : 0) + 1);
+    }
+    DataIpcShare(_part_indptr, part_size_vec, "dataset part indptr");
 
-  part_size_vec.clear();
-  part_size_vec.resize(num_part, 0);
-  auto indptr_data = dataset->indptr->CPtr<IdType>();
-  for (IdType i = 0; i < num_node; ++i) {
-    IdType num_edge = indptr_data[i + 1] - indptr_data[i];
-    IdType tmp_part_id = (i % num_part);
-    part_size_vec[tmp_part_id] += num_edge;
+    part_size_vec.clear();
+    part_size_vec.resize(num_part, 0);
+    auto indptr_data = dataset->indptr->CPtr<IdType>();
+    for (IdType i = 0; i < num_node; ++i) {
+      IdType num_edge = indptr_data[i + 1] - indptr_data[i];
+      IdType tmp_part_id = (i % num_part);
+      part_size_vec[tmp_part_id] += num_edge;
+    }
+    DataIpcShare(_part_indices, part_size_vec, "dataset part indices");
   }
-  DataIpcShare(_part_indices, part_size_vec, "dataset part indices");
 
   CUDA_CALL(cudaMalloc((void **)&_d_part_indptr, num_part * sizeof(IdType *)));
   CUDA_CALL(cudaMalloc((void **)&_d_part_indices, num_part * sizeof(IdType *)));
@@ -170,9 +188,28 @@ DeviceDistGraph DistGraph::DeviceHandle() const {
 }
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
-
-  PartitionSolver solver(ctxes);
-  _group_configs = solver.solve();
+  if (RunConfig::dist_graph_part_cpu < 1) {
+    PartitionSolver solver(ctxes);
+    _group_configs = solver.solve();
+    
+  } else {
+    _group_configs.clear();
+    for (int i = 0; i < ctxes.size(); i++) {
+      auto ctx = ctxes[i];
+      CHECK_EQ(i, ctx.device_id);
+      std::vector<IdType> part_ids;
+      std::vector<Context> ctx_group;
+      for (int j = 0; j < RunConfig::dist_graph_part_cpu; j++) {
+        if (j == 0) {
+          ctx_group.push_back(ctx);
+        } else {
+          ctx_group.push_back(CPU());
+        }
+        part_ids.push_back(j);
+      }
+      _group_configs.emplace_back(ctx, part_ids, ctx_group);
+    }
+  }
   for (auto &config : _group_configs) {
     LOG(INFO) << config;
   }
@@ -572,7 +609,7 @@ std::ostream& operator<<(std::ostream &os, const DistGraph::GroupConfig &config)
   for (auto part : config.part_ids)
     part_ss << part << " ";
   for (auto &ctx : config.ctx_group)
-    peer_ss << ctx.device_id << " ";
+    peer_ss << ctx << " ";
   os << "GPU[" << config.ctx.device_id << "]"
      << " part: [ " << part_ss.str() << "]"
      << " peer: [ " << peer_ss.str() << "]";

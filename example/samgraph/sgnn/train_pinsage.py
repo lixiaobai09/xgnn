@@ -114,6 +114,11 @@ def parse_args(default_run_config):
     argparser.add_argument('--use-dist-graph', action="store_true",
                             default=False)
 
+    argparser.add_argument('--unified-memory', action='store_true',
+                           default=False)
+    argparser.add_argument('--unified-memory-percentage', type=float, nargs='+', default=argparse.SUPPRESS)
+
+
 
     return vars(argparser.parse_args())
 
@@ -354,12 +359,14 @@ def run(worker_id, run_config):
             ('epoch_time:sample_no_mark', np.mean(epoch_sample_total_times[1:]) - np.mean(epoch_get_cache_miss_index_times[1:])))
         test_result.append(('epoch_time:copy_time',
                            np.mean(epoch_copy_times[1:])))
+        test_result.append(('epoch_time:mark_cache_copy_time',
+            np.mean(epoch_copy_times[1:]) + np.mean(epoch_get_cache_miss_index_times[1:])))
         test_result.append(('convert_time', np.mean(epoch_convert_times[1:])))
         test_result.append(('train_time', np.mean(epoch_train_times[1:])))
         test_result.append(('epoch_time:train_total', np.mean(
             epoch_train_total_times_profiler[1:])))
-        test_result.append(('epoch_time:mark_cache_train_total',
-            np.mean(epoch_train_total_times_profiler[1:]) + np.mean(epoch_get_cache_miss_index_times[1:])))
+        # test_result.append(('epoch_time:mark_cache_train_total',
+        #     np.mean(epoch_train_total_times_profiler[1:]) + np.mean(epoch_get_cache_miss_index_times[1:])))
         test_result.append(
             ('cache_percentage', run_config['cache_percentage']))
         test_result.append(('cache_hit_rate', np.mean(

@@ -61,6 +61,11 @@ def parse_args(default_run_config):
                            default=default_run_config['weight_decay'])
     argparser.add_argument('--use-dist-graph', action="store_true",
                            default=False)
+    argparser.add_argument('--dist-graph-part-cpu', type=int, default=0)
+    argparser.add_argument('--unified-memory', action='store_true',
+                           default=False)
+    argparser.add_argument('--unified-memory-percentage', type=float, nargs='+', default=argparse.SUPPRESS)
+
 
     return vars(argparser.parse_args())
 
@@ -149,6 +154,7 @@ def run(worker_id, run_config):
     epoch_sample_total_times = []
     epoch_sample_nodes = []
     epoch_sample_times = []
+    epoch_sample_coo_times = []
     epoch_get_cache_miss_index_times = []
     epoch_copy_times = []
     epoch_convert_times = []
@@ -250,6 +256,7 @@ def run(worker_id, run_config):
         epoch_sample_times.append(
             sam.get_log_epoch_value(epoch, sam.kLogEpochSampleTime)
         )
+        epoch_sample_coo_times.append(sam.get_log_epoch_value(epoch, sam.kLogEpochSampleCooTime))
         epoch_get_cache_miss_index_times.append(
             sam.get_log_epoch_value(
                 epoch, sam.KLogEpochSampleGetCacheMissIndexTime)
@@ -288,16 +295,19 @@ def run(worker_id, run_config):
             epoch_get_cache_miss_index_times[1:])))
         test_result.append(
             ('epoch_time:sample_total', np.mean(epoch_sample_total_times[1:])))
+        test_result.append(('epoch_time:sample_coo_time', np.mean(epoch_sample_coo_times[1:])))
         test_result.append(
             ('epoch_time:sample_no_mark', np.mean(epoch_sample_total_times[1:]) - np.mean(epoch_get_cache_miss_index_times[1:])))
         test_result.append(('epoch_time:copy_time',
                            np.mean(epoch_copy_times[1:])))
+        test_result.append(('epoch_time:mark_cache_copy_time',
+            np.mean(epoch_copy_times[1:]) + np.mean(epoch_get_cache_miss_index_times[1:])))
         test_result.append(('convert_time', np.mean(epoch_convert_times[1:])))
         test_result.append(('train_time', np.mean(epoch_train_times[1:])))
         test_result.append(('epoch_time:train_total', np.mean(
             epoch_train_total_times_profiler[1:])))
-        test_result.append(('epoch_time:mark_cache_train_total',
-            np.mean(epoch_train_total_times_profiler[1:]) + np.mean(epoch_get_cache_miss_index_times[1:])))
+        # test_result.append(('epoch_time:mark_cache_train_total',
+        #     np.mean(epoch_train_total_times_profiler[1:]) + np.mean(epoch_get_cache_miss_index_times[1:])))
         test_result.append(
             ('cache_percentage', run_config['cache_percentage']))
         test_result.append(('cache_hit_rate', np.mean(
