@@ -27,6 +27,7 @@
 #include <sstream>
 #include <string>
 #include <unordered_map>
+#include <cuda_runtime.h>
 
 #include "../constant.h"
 #include "../cpu/cpu_engine.h"
@@ -116,6 +117,29 @@ void DistEngine::Init() {
   Timer t_l2_init_load_ds_mmap;
   LoadGraphDataset();
 
+  if (RunConfig::gpu_extract) {
+    Timer t;
+    auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+    auto label = mmap(NULL, _dataset->label->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+    CHECK_NE(feat, MAP_FAILED);
+    CHECK_NE(label, MAP_FAILED);
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+    for (size_t i = 0; i < _dataset->feat->Shape()[0]; i++) {
+      size_t nbytes = GetDataTypeBytes(_dataset->feat->Type()) * _dataset->feat->Shape()[1];
+      size_t off = i * nbytes;
+      std::memcpy(feat + off, _dataset->feat->Data() + off, nbytes);
+    }
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+    for (size_t i = 0; i < _dataset->label->Shape()[0]; i++) {
+      size_t nbytes = GetDataTypeBytes(_dataset->label->Type());
+      size_t off = i * nbytes;
+      std::memcpy(label + off, _dataset->label->Data() + off, nbytes);
+    }
+    _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(), _dataset->feat->Name());
+    _dataset->label = Tensor::FromBlob(label, _dataset->label->Type(), _dataset->label->Shape(), MMAP(), _dataset->label->Name());
+    LOG(INFO) << "GPU Extract, load feature and label to shm, " << t.Passed() << " sec";
+  }
+
   if (RunConfig::UseGPUCache()) {
     switch (RunConfig::cache_policy) {
       case kCacheByPreSampleStatic:
@@ -127,6 +151,9 @@ void DistEngine::Init() {
         break;
       }
       default: ;
+    }
+    if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
+      cuda::DeviceP2PComm::Init(RunConfig::num_worker);
     }
   }
   double init_load_ds_mmap_time = t_l2_init_load_ds_mmap.Passed();
@@ -212,6 +239,10 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
     }
   } else if (RunConfig::use_dist_graph == true) {
     cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx);
+  }
+  if (RunConfig::gpu_extract) {
+    CUDA_CALL(cudaHostRegister(_dataset->feat->MutableData(), _dataset->feat->NumBytes(), cudaHostRegisterReadOnly));
+    CUDA_CALL(cudaHostRegister(_dataset->label->MutableData(), _dataset->label->NumBytes(), cudaHostRegisterReadOnly));
   }
   LOG(DEBUG) << "SampleDataCopy finished!";
 }
@@ -629,11 +660,21 @@ void DistEngine::TrainInit(int worker_id, Context ctx, DistType dist_type) {
         LOG(FATAL) << "DistType: " << static_cast<int>(_dist_type) << " not supported!";
       }
     } else {
-      _gpu_cache_manager = new cuda::GPUCacheManager(
-          _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),
-          _dataset->feat->Type(), _dataset->feat->Shape()[1],
-          static_cast<const IdType *>(_dataset->ranking_nodes->Data()),
-          _dataset->num_node, RunConfig::cache_percentage);
+      if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
+        cuda::DeviceP2PComm::Create(worker_id, _trainer_ctx.device_id);
+        _gpu_cache_manager = new cuda::GPUCacheManager(worker_id, 
+            _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),
+            _dataset->feat->Type(), _dataset->feat->Shape()[1],
+            static_cast<const IdType *>(_dataset->ranking_nodes->Data()),
+            _dataset->num_node, RunConfig::cache_percentage,
+            cuda::DeviceP2PComm::Get());
+      } else {
+        _gpu_cache_manager = new cuda::GPUCacheManager(
+            _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),
+            _dataset->feat->Type(), _dataset->feat->Shape()[1],
+            static_cast<const IdType *>(_dataset->ranking_nodes->Data()),
+            _dataset->num_node, RunConfig::cache_percentage);
+      }
     }
     time_build_cache = t_build_cache.Passed();
   }
@@ -709,7 +750,7 @@ void DistEngine::Shutdown() {
     LOG_MEM_USAGE(WARNING, "trainer before shutdown", _trainer_ctx);
   }
 
-  if (RunArch::kArch6) {
+  if (RunConfig::run_arch == kArch6) {
     auto device = Device::Get(_sampler_ctx);
     Profiler::Get().LogInit(kLogInitL1WorkspaceTotalMemory, device->TotalSize(_sampler_ctx));
   }
@@ -756,6 +797,10 @@ void DistEngine::Shutdown() {
     LOG(FATAL) << "_dist_type is illegal!";
   }
 
+  // if (RunConfig::gpu_extract) {
+  //   CUDA_CALL(cudaHostUnregister(_dataset->feat->MutableData()));
+  //   CUDA_CALL(cudaHostUnregister(_dataset->label->MutableData()));
+  // }
   delete _dataset;
   if (_graph_pool != nullptr) {
     delete _graph_pool;

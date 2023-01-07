@@ -249,6 +249,7 @@ kLogEpochTrainTime                   = _get_next_enum_val(_epoch_log_val)
 kLogEpochTotalTime                   = _get_next_enum_val(_epoch_log_val)
 kLogEpochFeatureBytes                = _get_next_enum_val(_epoch_log_val)
 kLogEpochMissBytes                   = _get_next_enum_val(_epoch_log_val)
+kLogEpochLocalCacheBytes             = _get_next_enum_val(_epoch_log_val)
 kLogEpochNumSample                   = _get_next_enum_val(_epoch_log_val)
 
 _step_event_val = [0]

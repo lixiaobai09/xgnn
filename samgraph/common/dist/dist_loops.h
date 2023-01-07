@@ -39,6 +39,7 @@ void DoGraphCopy(TaskPtr task);
 void DoIdCopy(TaskPtr task);
 void DoCPUFeatureExtract(TaskPtr task);
 void DoFeatureCopy(TaskPtr task);
+void DoGPUFeatureExtract(TaskPtr task);
 
 void DoCacheIdCopy(TaskPtr task);
 void DoCacheIdCopyToCPU(TaskPtr task);
@@ -49,6 +50,7 @@ void DoCPULabelExtractAndCopy(TaskPtr task);
 
 void DoArch6GetCacheMissIndex(TaskPtr task);
 void DoArch6CacheFeatureCopy(TaskPtr task);
+void DoArch6GPUCacheFeatureCopy(TaskPtr task);
 
 typedef void (*ExtractFunction)(int);
 ExtractFunction GetArch5Loops();

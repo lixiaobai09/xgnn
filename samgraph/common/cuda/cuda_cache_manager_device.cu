@@ -28,6 +28,7 @@
 #include "../timer.h"
 #include "cuda_cache_manager.h"
 #include "cuda_utils.h"
+#include "../profiler.h"
 
 namespace samgraph {
 namespace common {
@@ -162,6 +163,36 @@ __global__ void get_cache_index(const IdType *hashtable, const IdType *nodes,
   // }
 }
 
+template <size_t BLOCK_SIZE, size_t TILE_SIZE>
+__global__ void count_local_cache(const IdType *cache_src_index, const IdType num_cache, 
+                                  IdType *prefix_count, 
+                                  const size_t rank, const size_t comm_size) {
+  size_t start = blockIdx.x * TILE_SIZE;
+  size_t end = start + TILE_SIZE;
+
+  using BlockReduce = typename cub::BlockReduce<IdType, BLOCK_SIZE>;
+
+  IdType local = 0;
+
+#pragma unroll
+  for (size_t i = start + threadIdx.x; i < end; i += BLOCK_SIZE) {
+    if (i < num_cache) {
+      if (cache_src_index[i] % comm_size == rank) {
+        local++;
+      }
+    }
+  }
+
+  __shared__ typename BlockReduce::TempStorage tmp_space;
+  local = BlockReduce(tmp_space).Sum(local);
+  if (threadIdx.x == 0) {
+    prefix_count[blockIdx.x] = local;
+    if (blockIdx.x == 0) {
+      prefix_count[gridDim.x] = 0;
+    }
+  }
+}
+
 template <typename T>
 __global__ void combine_miss_data(void *output, const void *miss,
                                   const IdType *miss_dst_index,
@@ -187,6 +218,27 @@ __global__ void combine_miss_data(void *output, const void *miss,
 }
 
 template <typename T>
+__global__ void extract_miss_data(void *output, const void* src_feat,
+                                  const IdType *miss_src_index, const IdType *miss_dst_index, 
+                                  const size_t num_miss, size_t dim, size_t mask) {
+  auto output_data = reinterpret_cast<T *>(output);
+  auto feat_data = reinterpret_cast<const T *>(src_feat);
+
+  size_t i = blockIdx.x * blockDim.y + threadIdx.y;
+  const size_t stride = blockDim.y * gridDim.x;
+  while (i < num_miss) {
+    size_t col = threadIdx.x;
+    const size_t src_idx = miss_src_index[i];
+    const size_t dst_idx = miss_dst_index[i];
+    while (col < dim) {
+      output_data[dst_idx * dim + col] = feat_data[(src_idx * dim + col) & mask];
+      col += blockDim.x;
+    }
+    i += stride;
+  }
+}
+
+template <typename T>
 __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
                                    const IdType *cache_dst_index,
                                    const size_t num_cache, const void *cache,
@@ -203,6 +255,30 @@ __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
     const size_t dst_idx = cache_dst_index[i];
     while (col < dim) {
       output_data[dst_idx * dim + col] = cache_data[src_idx * dim + col];
+      col += blockDim.x;
+    }
+    i += stride;
+  }
+}
+
+template <typename T>
+__global__ void combine_cache_data(void *output, const IdType *cache_src_index,
+                                   const IdType *cache_dst_index,
+                                   const size_t num_cache, DistArray::DeviceHandle cache,
+                                   size_t dim) {
+  T *output_data = reinterpret_cast<T *>(output);
+  
+  size_t i = blockIdx.x * blockDim.y + threadIdx.y;
+  const size_t stride = blockDim.y * gridDim.x;
+
+  while (i < num_cache) {
+    size_t col = threadIdx.x;
+    const size_t src_idx = cache_src_index[i];
+    const size_t dst_idx = cache_dst_index[i];
+    while (col < dim) {
+      IdType rank = src_idx % cache.comm_size;
+      IdType index = (src_idx / cache.comm_size) * dim + col;
+      output_data[dst_idx * dim + col] = cache.Get<T>(rank, index);
       col += blockDim.x;
     }
     i += stride;
@@ -343,6 +419,51 @@ void GPUCacheManager::GetMissCacheIndex(
   sampler_device->FreeWorkspace(_sampler_ctx, miss_prefix_counts);
 }
 
+void GPUCacheManager::CountLocalCache(size_t task_key, 
+                                      const IdType *cache_src_index, 
+                                      const size_t num_cache, const size_t num_nodes,
+                                      StreamHandle stream) {
+  CHECK(RunConfig::run_arch == kArch6 && RunConfig::part_cache);
+  auto sampler_device = Device::Get(_sampler_ctx);
+  auto cu_stream = static_cast<cudaStream_t>(stream);
+  const dim3 grid(RoundUpDiv((size_t)num_cache, Constant::kCudaTileSize));
+  const dim3 block(Constant::kCudaBlockSize);
+
+  IdType *local_cache_counts = sampler_device->AllocArray<IdType>(_sampler_ctx, grid.x + 1);
+  IdType *local_cache_counts_prefix_sum = sampler_device->AllocArray<IdType>(_sampler_ctx, grid.x + 1);
+  count_local_cache<Constant::kCudaBlockSize, Constant::kCudaTileSize>
+      <<<grid, block, 0, cu_stream>>>(
+        cache_src_index, num_cache, local_cache_counts,
+        _part_cache->Rank(), _part_cache->CommSize());
+  sampler_device->StreamSync(_sampler_ctx, stream);
+
+  size_t workspace_sz;
+  CUDA_CALL(cub::DeviceScan::ExclusiveSum(
+      nullptr, workspace_sz, static_cast<IdType *>(nullptr),
+      static_cast<IdType *>(nullptr), grid.x + 1, cu_stream));
+  sampler_device->StreamSync(_sampler_ctx, stream);
+  void *workspace = sampler_device->AllocWorkspace(_sampler_ctx, workspace_sz);
+  CUDA_CALL(cub::DeviceScan::ExclusiveSum(
+      workspace, workspace_sz, 
+      local_cache_counts, local_cache_counts_prefix_sum, 
+      grid.x + 1, cu_stream));
+  sampler_device->StreamSync(_sampler_ctx, stream);
+  
+  IdType num_local_cache;
+  sampler_device->CopyDataFromTo(
+      local_cache_counts_prefix_sum + grid.x, 0,
+      &num_local_cache, 0, sizeof(IdType),
+      _sampler_ctx, CPU(), stream);
+  sampler_device->StreamSync(_sampler_ctx, stream);
+  
+  sampler_device->FreeWorkspace(_sampler_ctx, local_cache_counts);
+  sampler_device->FreeWorkspace(_sampler_ctx, local_cache_counts_prefix_sum);
+  sampler_device->FreeWorkspace(_sampler_ctx, workspace);
+
+  Profiler::Get().LogEpochAdd(task_key, kLogEpochLocalCacheBytes, 
+      GetTensorBytes(_dtype, {num_local_cache, _dim}));
+}
+
 void GPUCacheManager::CombineMissData(void *output, const void *miss,
                                       const IdType *miss_dst_index,
                                       const size_t num_miss,
@@ -392,6 +513,75 @@ void GPUCacheManager::CombineMissData(void *output, const void *miss,
   device->StreamSync(_trainer_ctx, stream);
 }
 
+void GPUCacheManager::GPUExtractMissData(void *output, const IdType *miss_src_index,
+                                         const IdType *miss_dst_index, const size_t num_miss,
+                                         StreamHandle stream) {
+  LOG(DEBUG) << "GPUCacheManager::GPUExtractMissData(): num_miss " << num_miss;
+  if (num_miss == 0) return;
+
+  auto device = Device::Get(_trainer_ctx);
+  auto cu_stream = static_cast<cudaStream_t>(stream);
+
+  dim3 block(256, 1);
+  while(static_cast<size_t> (block.x) >= 2 * _dim) {
+    block.x /= 2;
+    block.y *= 2;
+  }
+  const dim3 grid(RoundUpDiv(num_miss, static_cast<size_t>(block.y)));
+
+  size_t mask = static_cast<size_t>(-1);
+  if (RunConfig::option_empty_feat) {
+    mask = (1ULL << RunConfig::option_empty_feat) - 1;
+  }
+
+  switch (_dtype)
+  {
+  case kF32:
+    extract_miss_data<float><<<grid, block, 0, cu_stream>>>(
+        output, _cpu_src_data, miss_src_index, miss_dst_index, num_miss, _dim, mask);
+    break;
+  case kF64:
+    extract_miss_data<double><<<grid, block, 0, cu_stream>>>(
+        output, _cpu_src_data, miss_src_index, miss_dst_index, num_miss, _dim, mask);
+    break;
+  case kF16:
+    extract_miss_data<short><<<grid, block, 0, cu_stream>>>(
+        output, _cpu_src_data, miss_src_index, miss_dst_index, num_miss, _dim, mask);
+    break;
+  case kU8:
+    extract_miss_data<uint8_t><<<grid, block, 0, cu_stream>>>(
+        output, _cpu_src_data, miss_src_index, miss_dst_index, num_miss, _dim, mask);
+    break;
+  case kI32:
+    extract_miss_data<int32_t><<<grid, block, 0, cu_stream>>>(
+        output, _cpu_src_data, miss_src_index, miss_dst_index, num_miss, _dim, mask);
+    break;
+  case kI64:
+    extract_miss_data<int64_t><<<grid, block, 0, cu_stream>>>(
+        output, _cpu_src_data, miss_src_index, miss_dst_index, num_miss, _dim, mask);
+    break;
+  default:
+    CHECK(0);
+  }
+  device->StreamSync(_trainer_ctx, stream);
+}
+
+template <typename T>
+inline void dispatch_combine_cache(dim3 grid, dim3 block, cudaStream_t stream,
+                          void *output, const IdType *cache_src_index,
+                          const IdType *cache_dst_index, const size_t num_cache, size_t dim,
+                          const void *norm_cache, const DistArray::DeviceHandle &part_cache) {
+  if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
+    combine_cache_data<T><<<grid, block, 0, stream>>>(
+      output, cache_src_index, cache_dst_index, num_cache,
+      part_cache, dim);
+  } else {
+    combine_cache_data<T><<<grid, block, 0, stream>>>(
+      output, cache_src_index, cache_dst_index, num_cache,
+      norm_cache, dim);
+  }
+}
+
 void GPUCacheManager::CombineCacheData(void *output,
                                        const IdType *cache_src_index,
                                        const IdType *cache_dst_index,
@@ -410,36 +600,59 @@ void GPUCacheManager::CombineCacheData(void *output,
   }
   const dim3 grid(RoundUpDiv(num_cache, static_cast<size_t>(block.y)));
 
+  DistArray::DeviceHandle part_cache{};
+  if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
+    part_cache = _part_cache->GetDeviceHandle();
+  }
+
   switch (_dtype) {
     case kF32:
-      combine_cache_data<float><<<grid, block, 0, cu_stream>>>(
-          output, cache_src_index, cache_dst_index, num_cache,
-          _trainer_cache_data, _dim);
+      dispatch_combine_cache<float>(grid, block, cu_stream, 
+          output, cache_src_index, cache_dst_index, num_cache, _dim, 
+          _trainer_cache_data, part_cache);
+      // combine_cache_data<float><<<grid, block, 0, cu_stream>>>(
+      //     output, cache_src_index, cache_dst_index, num_cache,
+      //     _trainer_cache_data, _dim);
       break;
     case kF64:
-      combine_cache_data<double><<<grid, block, 0, cu_stream>>>(
-          output, cache_src_index, cache_dst_index, num_cache,
-          _trainer_cache_data, _dim);
+      dispatch_combine_cache<double>(grid, block, cu_stream, 
+          output, cache_src_index, cache_dst_index, num_cache, _dim, 
+          _trainer_cache_data, part_cache);
+      // combine_cache_data<double><<<grid, block, 0, cu_stream>>>(
+      //     output, cache_src_index, cache_dst_index, num_cache,
+      //     _trainer_cache_data, _dim);
       break;
     case kF16:
-      combine_cache_data<short><<<grid, block, 0, cu_stream>>>(
-          output, cache_src_index, cache_dst_index, num_cache,
-          _trainer_cache_data, _dim);
+      dispatch_combine_cache<short>(grid, block, cu_stream, 
+          output, cache_src_index, cache_dst_index, num_cache, _dim, 
+          _trainer_cache_data, part_cache);
+      // combine_cache_data<short><<<grid, block, 0, cu_stream>>>(
+      //     output, cache_src_index, cache_dst_index, num_cache,
+      //     _trainer_cache_data, _dim);
       break;
     case kU8:
-      combine_cache_data<uint8_t><<<grid, block, 0, cu_stream>>>(
-          output, cache_src_index, cache_dst_index, num_cache,
-          _trainer_cache_data, _dim);
+      dispatch_combine_cache<uint8_t>(grid, block, cu_stream, 
+          output, cache_src_index, cache_dst_index, num_cache, _dim, 
+          _trainer_cache_data, part_cache);
+      // combine_cache_data<uint8_t><<<grid, block, 0, cu_stream>>>(
+      //     output, cache_src_index, cache_dst_index, num_cache,
+      //     _trainer_cache_data, _dim);
       break;
     case kI32:
-      combine_cache_data<int32_t><<<grid, block, 0, cu_stream>>>(
-          output, cache_src_index, cache_dst_index, num_cache,
-          _trainer_cache_data, _dim);
+      dispatch_combine_cache<int32_t>(grid, block, cu_stream, 
+          output, cache_src_index, cache_dst_index, num_cache, _dim, 
+          _trainer_cache_data, part_cache);
+      // combine_cache_data<int32_t><<<grid, block, 0, cu_stream>>>(
+      //     output, cache_src_index, cache_dst_index, num_cache,
+      //     _trainer_cache_data, _dim);
       break;
     case kI64:
-      combine_cache_data<int64_t><<<grid, block, 0, cu_stream>>>(
-          output, cache_src_index, cache_dst_index, num_cache,
-          _trainer_cache_data, _dim);
+      dispatch_combine_cache<int64_t>(grid, block, cu_stream, 
+          output, cache_src_index, cache_dst_index, num_cache, _dim, 
+          _trainer_cache_data, part_cache);
+      // combine_cache_data<int64_t><<<grid, block, 0, cu_stream>>>(
+      //     output, cache_src_index, cache_dst_index, num_cache,
+      //     _trainer_cache_data, _dim);
       break;
     default:
       CHECK(0);

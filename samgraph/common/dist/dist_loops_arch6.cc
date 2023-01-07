@@ -97,28 +97,41 @@ bool RunDataCopySubLoopOnce() {
   auto task = this_q->GetTask();
 
   if (task) {
-    Timer t2;
-    DoIdCopy(task);
-    double id_copy_time = t2.Passed();
+    if (RunConfig::gpu_extract) {
+      Timer t2;
+      DoGPUFeatureExtract(task);
+      double extract_time = t2.Passed();
 
-    Timer t3;
-    DoCPUFeatureExtract(task);
-    double extract_time = t3.Passed();
+      LOG(DEBUG) << "Submit: process task with key " << task->key;
+      graph_pool->Submit(task->key, task);
 
-    Timer t4;
-    DoFeatureCopy(task);
-    double feat_copy_time = t4.Passed();
+      Profiler::Get().LogStep(task->key, kLogL1CopyTime, extract_time);
+      Profiler::Get().LogStep(task->key, kLogL2ExtractTime, extract_time);
+      Profiler::Get().LogEpochAdd(task->key, kLogEpochCopyTime, extract_time);
+    } else {
+      Timer t2;
+      DoIdCopy(task);
+      double id_copy_time = t2.Passed();
 
-    LOG(DEBUG) << "Submit: process task with key " << task->key;
-    graph_pool->Submit(task->key, task);
+      Timer t3;
+      DoCPUFeatureExtract(task);
+      double extract_time = t3.Passed();
 
-    Profiler::Get().LogStep(task->key, kLogL1CopyTime,
-                            id_copy_time + extract_time + feat_copy_time);
-    Profiler::Get().LogStep(task->key, kLogL2IdCopyTime, id_copy_time);
-    Profiler::Get().LogStep(task->key, kLogL2ExtractTime, extract_time);
-    Profiler::Get().LogStep(task->key, kLogL2FeatCopyTime, feat_copy_time);
-    Profiler::Get().LogEpochAdd(task->key, kLogEpochCopyTime,
-                                id_copy_time + extract_time + feat_copy_time);
+      Timer t4;
+      DoFeatureCopy(task);
+      double feat_copy_time = t4.Passed();
+
+      LOG(DEBUG) << "Submit: process task with key " << task->key;
+      graph_pool->Submit(task->key, task);
+
+      Profiler::Get().LogStep(task->key, kLogL1CopyTime,
+                              id_copy_time + extract_time + feat_copy_time);
+      Profiler::Get().LogStep(task->key, kLogL2IdCopyTime, id_copy_time);
+      Profiler::Get().LogStep(task->key, kLogL2ExtractTime, extract_time);
+      Profiler::Get().LogStep(task->key, kLogL2FeatCopyTime, feat_copy_time);
+      Profiler::Get().LogEpochAdd(task->key, kLogEpochCopyTime,
+                                  id_copy_time + extract_time + feat_copy_time);
+    }
   } else {
     std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
   }
@@ -142,28 +155,42 @@ bool RunCacheDataCopySubLoopOnce() {
     DoArch6GetCacheMissIndex(task);
     double get_miss_cache_index_time = t2.Passed();
 
-    Timer t3;
-    DoCacheIdCopyToCPU(task);
-    double id_copy_time = t3.Passed();
-
-    Timer t4;
-    DoCPULabelExtractAndCopy(task);
-    DoArch6CacheFeatureCopy(task);
-    double feat_copy_time = t4.Passed();
-
-    LOG(DEBUG) << "Submit with cache: process task with key " << task->key;
-    graph_pool->Submit(task->key, task);
-
     Profiler::Get().LogEpochAdd(task->key, KLogEpochSampleGetCacheMissIndexTime,
                                 get_miss_cache_index_time);
     Profiler::Get().LogEpochAdd(task->key, kLogEpochSampleTotalTime,
                                 get_miss_cache_index_time);
-    Profiler::Get().LogStep(task->key, kLogL1CopyTime,
-                            id_copy_time + feat_copy_time);
-    Profiler::Get().LogStep(task->key, kLogL2IdCopyTime, id_copy_time);
-    Profiler::Get().LogStep(task->key, kLogL2FeatCopyTime, feat_copy_time);
-    Profiler::Get().LogEpochAdd(task->key, kLogEpochCopyTime,
-                                id_copy_time + feat_copy_time);
+    if (RunConfig::gpu_extract) {
+      Timer t3;
+      DoGPULabelExtract(task);
+      DoArch6GPUCacheFeatureCopy(task);
+      double feat_copy_time = t3.Passed();
+
+      LOG(DEBUG) << "Submit with cache: process task with key " << task->key;
+      graph_pool->Submit(task->key, task);
+
+      Profiler::Get().LogStep(task->key, kLogL1CopyTime, feat_copy_time);
+      Profiler::Get().LogStep(task->key, kLogL2FeatCopyTime, feat_copy_time);
+      Profiler::Get().LogEpochAdd(task->key, kLogEpochCopyTime, feat_copy_time);
+    } else {
+      Timer t3;
+      DoCacheIdCopyToCPU(task);
+      double id_copy_time = t3.Passed();
+
+      Timer t4;
+      DoCPULabelExtractAndCopy(task);
+      DoArch6CacheFeatureCopy(task);
+      double feat_copy_time = t4.Passed();
+
+      LOG(DEBUG) << "Submit with cache: process task with key " << task->key;
+      graph_pool->Submit(task->key, task);
+
+      Profiler::Get().LogStep(task->key, kLogL1CopyTime,
+                              id_copy_time + feat_copy_time);
+      Profiler::Get().LogStep(task->key, kLogL2IdCopyTime, id_copy_time);
+      Profiler::Get().LogStep(task->key, kLogL2FeatCopyTime, feat_copy_time);
+      Profiler::Get().LogEpochAdd(task->key, kLogEpochCopyTime,
+                                  id_copy_time + feat_copy_time);
+    }
   } else {
     std::this_thread::sleep_for(std::chrono::nanoseconds(1000));
   }

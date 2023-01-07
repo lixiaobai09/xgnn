@@ -95,6 +95,10 @@ std::vector<Context> RunConfig::unified_memory_ctxes;
 bool                 RunConfig::use_dist_graph                 = false;
 int                  RunConfig::dist_graph_part_cpu            = 0;
 
+bool                 RunConfig::part_cache                     = false;
+
+bool                 RunConfig::gpu_extract                    = false;
+
 void RunConfig::LoadConfigFromEnv() {
   if (IsEnvSet(Constant::kEnvSamBackCudaLaunchBlocking)) {
     RunConfig::option_samback_cuda_launch_blocking = true;
