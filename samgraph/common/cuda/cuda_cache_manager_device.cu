@@ -277,7 +277,7 @@ __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
     const size_t dst_idx = cache_dst_index[i];
     while (col < dim) {
       IdType rank = src_idx % cache.comm_size;
-      IdType index = src_idx / cache.comm_size + col;
+      IdType index = (src_idx / cache.comm_size) * dim + col;
       output_data[dst_idx * dim + col] = cache.Get<T>(rank, index);
       col += blockDim.x;
     }
