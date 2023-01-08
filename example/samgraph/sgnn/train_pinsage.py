@@ -118,6 +118,8 @@ def parse_args(default_run_config):
                            default=False)
     argparser.add_argument('--unified-memory-percentage', type=float, nargs='+', default=argparse.SUPPRESS)
 
+    argparser.add_argument('--part-cache', action='store_true', default=False)
+    argparser.add_argument('--gpu-extract', action='store_true', default=False)
 
 
     return vars(argparser.parse_args())
