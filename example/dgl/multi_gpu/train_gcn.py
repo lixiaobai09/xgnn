@@ -134,7 +134,7 @@ def get_run_config():
     dataset = fastgraph.dataset(
         run_config['dataset'], run_config['root_path'])
     t1 = time.time()
-    dataset.feat = dataset.feat.clone()
+    dataset.feat = dataset.feat.clone().shared_memory_()
     t2 = time.time()
     print("feat clone time: ", (t2 - t1))
     num_train_set = dataset.train_set.shape[0]
