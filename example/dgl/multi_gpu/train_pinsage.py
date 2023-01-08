@@ -120,6 +120,8 @@ def parse_args(default_run_config):
                            dest='use_gpu_sampling', action='store_false')
     argparser.add_argument('--use-uva', action='store_true',
                             default=False)
+    argparser.add_argument('--use-uva-feat', action='store_true',
+                            default=False)
     argparser.add_argument('--devices', nargs='+',
                            type=int, default=default_run_config['devices'])
     argparser.add_argument('--dataset', type=str,
@@ -196,6 +198,8 @@ def get_run_config():
 
     dataset = fastgraph.dataset(
         run_config['dataset'], run_config['root_path'])
+    # use a new memory space, share_memory_ is locked?
+    dataset.feat = dataset.feat.clone().share_memory_()
     num_train_set = dataset.train_set.shape[0]
 
     # [prefetch_factor]: number of samples loaded in advance by each worker.
@@ -247,13 +251,15 @@ def get_run_config():
 
 def load_subtensor(feat, label, input_nodes, output_nodes, train_device):
     # feat/label is on CPU while input_nodes/output_nodes is on GPU or CPU
-    input_nodes = input_nodes.to(feat.device)
-    output_nodes = output_nodes.to(label.device)
+    input_nodes = input_nodes.long().to(feat.device)
+    output_nodes = output_nodes.long().to(label.device)
 
-    batch_inputs = torch.index_select(
-        feat, 0, input_nodes.long()).to(train_device, dtype=torch.float32)
-    batch_labels = torch.index_select(
-        label, 0, output_nodes.long()).to(train_device)
+    # batch_inputs = torch.index_select(
+    #     feat, 0, input_nodes.long()).to(train_device, dtype=torch.float32)
+    # batch_labels = torch.index_select(
+    #     label, 0, output_nodes.long()).to(train_device)
+    batch_inputs = feat[input_nodes].to(train_device, dtype=torch.float32)
+    batch_labels = label[output_nodes].to(train_device)
 
     return batch_inputs, batch_labels
 
@@ -295,6 +301,9 @@ def run(worker_id, run_config):
     # use UVA to sure the Graph g is in 'cpu' device
     if (run_config['use_uva']):
         sample_device = train_device # for ID de-duplicate and remap on GPU
+    if (run_config['use_uva_feat']):
+        feat = dgl.contrib.UnifiedTensor(feat, device=train_device)
+        label = label.to(train_device)
 
     sampler = PinSAGESampler(g, run_config['random_walk_length'], run_config['random_walk_restart_prob'],
                              run_config['num_random_walk'], run_config['num_neighbor'], run_config['num_layer'])

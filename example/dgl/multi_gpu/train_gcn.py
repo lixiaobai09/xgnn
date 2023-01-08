@@ -133,10 +133,8 @@ def get_run_config():
 
     dataset = fastgraph.dataset(
         run_config['dataset'], run_config['root_path'])
-    t1 = time.time()
+    # use a new memory space, share_memory_ is locked?
     dataset.feat = dataset.feat.clone().share_memory_()
-    t2 = time.time()
-    print("feat clone time: ", (t2 - t1))
     num_train_set = dataset.train_set.shape[0]
 
     # [prefetch_factor]: number of samples loaded in advance by each worker.
