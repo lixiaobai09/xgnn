@@ -196,8 +196,8 @@ def load_subtensor(feat, label, input_nodes, output_nodes, train_device):
     #     feat, 0, input_nodes.long()).to(train_device, dtype=torch.float32)
     # batch_labels = torch.index_select(
     #     label, 0, output_nodes.long()).to(train_device)
-    batch_inputs = feat[input_nodes] # .to(train_device, dtype=torch.float32)
-    batch_labels = label[output_nodes] # .to(train_device)
+    batch_inputs = feat[input_nodes].to(train_device, dtype=torch.float32)
+    batch_labels = label[output_nodes].to(train_device)
 
     return batch_inputs, batch_labels
 
