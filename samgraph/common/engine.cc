@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -158,7 +158,7 @@ void Engine::LoadGraphDataset() {
                         {meta[Constant::kMetaNumNode] + 1},
                         ctx_map[Constant::kIndptrFile], "dataset.indptr");
   } else {
-    _dataset->indptr = 
+    _dataset->indptr =
         Tensor::UMFromMmap(_dataset_path + Constant::kIndptrFile, DataType::kI32,
                           {meta[Constant::kMetaNumNode] + 1},
                           RunConfig::unified_memory_ctxes, "dataset.indptr");
@@ -175,27 +175,53 @@ void Engine::LoadGraphDataset() {
                           RunConfig::unified_memory_ctxes, "dataset.indices");
   }
 
-  if (RunConfig::option_fake_feat_dim != 0) {
-    meta[Constant::kMetaFeatDim] = RunConfig::option_fake_feat_dim;
-    _dataset->feat = Tensor::EmptyNoScale(feat_data_type,
-                                          {meta[Constant::kMetaNumNode], meta[Constant::kMetaFeatDim]},
-                                          ctx_map[Constant::kFeatFile], "dataset.feat");
-  } else if (FileExist(_dataset_path + Constant::kFeatFile) && RunConfig::option_empty_feat == 0) {
+  std::vector<size_t> empty_feat_shape;
+  if (!FileExist(_dataset_path + Constant::kFeatFile) ||
+      RunConfig::option_fake_feat_dim != 0 ||
+      RunConfig::option_empty_feat != 0) {
+    if (RunConfig::option_fake_feat_dim != 0) {
+      meta[Constant::kMetaFeatDim] = RunConfig::option_fake_feat_dim;
+      empty_feat_shape = {meta[Constant::kMetaNumNode], meta[Constant::kMetaFeatDim]};
+    } else if (RunConfig::option_empty_feat != 0) {
+      empty_feat_shape =
+          {1ull << RunConfig::option_empty_feat, meta[Constant::kMetaFeatDim]};
+    } else {
+      empty_feat_shape =
+          {meta[Constant::kMetaNumNode], meta[Constant::kMetaFeatDim]};
+    }
+  }
+
+  double gpu_extract_time = 0.0;
+  if (empty_feat_shape.size()) {
+    if (RunConfig::gpu_extract) {
+      Timer tt;
+      size_t nbytes = GetTensorBytes(feat_data_type, empty_feat_shape);
+      auto feat = mmap(NULL, nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+      CHECK_NE(feat, MAP_FAILED);
+      _dataset->feat = Tensor::FromBlob(feat, feat_data_type,
+          empty_feat_shape, MMAP(), "dataset.feat");
+      gpu_extract_time += tt.Passed();
+    } else {
+      _dataset->feat = Tensor::EmptyNoScale(feat_data_type, empty_feat_shape,
+          ctx_map[Constant::kFeatFile], "dataset.feat");
+    }
+  } else {
     _dataset->feat = Tensor::FromMmap(
         _dataset_path + Constant::kFeatFile, feat_data_type,
         {meta[Constant::kMetaNumNode], meta[Constant::kMetaFeatDim]},
         ctx_map[Constant::kFeatFile], "dataset.feat");
-  } else {
-    if (RunConfig::option_empty_feat != 0) {
-      _dataset->feat = Tensor::EmptyNoScale(
-          feat_data_type,
-          {1ull << RunConfig::option_empty_feat, meta[Constant::kMetaFeatDim]},
-          ctx_map[Constant::kFeatFile], "dataset.feat");
-    } else {
-      _dataset->feat = Tensor::EmptyNoScale(
-          feat_data_type,
-          {meta[Constant::kMetaNumNode], meta[Constant::kMetaFeatDim]},
-          ctx_map[Constant::kFeatFile], "dataset.feat");
+    if (RunConfig::gpu_extract) {
+      Timer tt;
+      auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+      CHECK_NE(feat, MAP_FAILED);
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+      for (size_t i = 0; i < _dataset->feat->Shape()[0]; i++) {
+        size_t nbytes = GetDataTypeBytes(_dataset->feat->Type()) * _dataset->feat->Shape()[1];
+        size_t off = i * nbytes;
+        std::memcpy(feat + off, _dataset->feat->Data() + off, nbytes);
+      }
+      _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(), _dataset->feat->Name());
+      gpu_extract_time += tt.Passed();
     }
   }
 
@@ -204,10 +230,38 @@ void Engine::LoadGraphDataset() {
         Tensor::FromMmap(_dataset_path + Constant::kLabelFile, DataType::kI64,
                          {meta[Constant::kMetaNumNode]},
                          ctx_map[Constant::kLabelFile], "dataset.label");
+    if (RunConfig::gpu_extract) {
+      Timer tt;
+      auto label = mmap(NULL, _dataset->label->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+      CHECK_NE(label, MAP_FAILED);
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+      for (size_t i = 0; i < _dataset->label->Shape()[0]; i++) {
+        size_t nbytes = GetDataTypeBytes(_dataset->label->Type());
+        size_t off = i * nbytes;
+        std::memcpy(label + off, _dataset->label->Data() + off, nbytes);
+      }
+      _dataset->label = Tensor::FromBlob(label, _dataset->label->Type(), _dataset->label->Shape(), MMAP(), _dataset->label->Name());
+      gpu_extract_time += tt.Passed();
+    }
   } else {
-    _dataset->label =
-        Tensor::EmptyNoScale(DataType::kI64, {meta[Constant::kMetaNumNode]},
-                             ctx_map[Constant::kLabelFile], "dataset.label");
+    if (RunConfig::gpu_extract) {
+      Timer tt;
+      auto nbytes = GetTensorBytes(DataType::kI64, {meta[Constant::kMetaNumNode]});
+      auto label = mmap(NULL, nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+      CHECK_NE(label, MAP_FAILED);
+      _dataset->label = Tensor::FromBlob(label, DataType::kI64,
+          {meta[Constant::kMetaNumNode]}, MMAP(), "dataset.label");
+      gpu_extract_time += tt.Passed();
+    } else {
+      _dataset->label =
+          Tensor::EmptyNoScale(DataType::kI64, {meta[Constant::kMetaNumNode]},
+                               ctx_map[Constant::kLabelFile], "dataset.label");
+    }
+  }
+
+  if (RunConfig::gpu_extract) {
+    LOG(INFO) << "GPU Extract, load feature and label to shm, "
+      << gpu_extract_time << " sec";
   }
 
   _dataset->train_set =
