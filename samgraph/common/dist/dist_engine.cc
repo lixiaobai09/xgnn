@@ -117,29 +117,6 @@ void DistEngine::Init() {
   Timer t_l2_init_load_ds_mmap;
   LoadGraphDataset();
 
-  if (RunConfig::gpu_extract) {
-    Timer t;
-    auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
-    auto label = mmap(NULL, _dataset->label->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
-    CHECK_NE(feat, MAP_FAILED);
-    CHECK_NE(label, MAP_FAILED);
-#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
-    for (size_t i = 0; i < _dataset->feat->Shape()[0]; i++) {
-      size_t nbytes = GetDataTypeBytes(_dataset->feat->Type()) * _dataset->feat->Shape()[1];
-      size_t off = i * nbytes;
-      std::memcpy(feat + off, _dataset->feat->Data() + off, nbytes);
-    }
-#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
-    for (size_t i = 0; i < _dataset->label->Shape()[0]; i++) {
-      size_t nbytes = GetDataTypeBytes(_dataset->label->Type());
-      size_t off = i * nbytes;
-      std::memcpy(label + off, _dataset->label->Data() + off, nbytes);
-    }
-    _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(), _dataset->feat->Name());
-    _dataset->label = Tensor::FromBlob(label, _dataset->label->Type(), _dataset->label->Shape(), MMAP(), _dataset->label->Name());
-    LOG(INFO) << "GPU Extract, load feature and label to shm, " << t.Passed() << " sec";
-  }
-
   if (RunConfig::UseGPUCache()) {
     switch (RunConfig::cache_policy) {
       case kCacheByPreSampleStatic:
@@ -662,7 +639,7 @@ void DistEngine::TrainInit(int worker_id, Context ctx, DistType dist_type) {
     } else {
       if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
         cuda::DeviceP2PComm::Create(worker_id, _trainer_ctx.device_id);
-        _gpu_cache_manager = new cuda::GPUCacheManager(worker_id, 
+        _gpu_cache_manager = new cuda::GPUCacheManager(worker_id,
             _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),
             _dataset->feat->Type(), _dataset->feat->Shape()[1],
             static_cast<const IdType *>(_dataset->ranking_nodes->Data()),

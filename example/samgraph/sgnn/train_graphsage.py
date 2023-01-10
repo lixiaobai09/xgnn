@@ -292,8 +292,11 @@ def run(worker_id, run_config):
             print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f}'.format(
                 acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total)))
         if worker_id == 0:
-            print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f}'.format(
-                epoch, epoch_total_times_python[-1], epoch_sample_total_times[-1], epoch_copy_times[-1], epoch_train_total_times_profiler[-1]))
+            (free, total) = torch.cuda.mem_get_info()
+            used = (total - free) / 1024 / 1024 / 1024
+            print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f}'.format(
+                epoch, epoch_total_times_python[-1], epoch_sample_total_times[-1], epoch_copy_times[-1], epoch_train_total_times_profiler[-1],
+                used))
 
     # sync the train workers
     if num_worker > 1:
