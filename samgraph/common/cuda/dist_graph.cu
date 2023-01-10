@@ -85,7 +85,7 @@ void DeviceP2PComm::Create(int worker_id, int device_id) {
     std::stringstream ss;
     int new_rank = -1;
     int new_comm_size = clique.count();
-    ss << "p2pComm";
+    ss << "p2pComm-" << getenv("USER");
     for (int i = 0, rk = 0; i < _p2p_comm->_comm_size; i++) {
       if (clique[i]) {
         if (i == device_id) new_rank = rk;
