@@ -252,6 +252,8 @@ void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
       "indptr in device:cpu" );
   _part_indices[part_id] = Tensor::Empty(kI32, {part_edge_count}, CPU(),
       "indices in device:cpu");
+  LOG(DEBUG) << "host memory for partitions: "
+    << ToReadableSize((indptr_size + part_edge_count) * sizeof(IdType));
   part_edge_count = 0;
 
   for (IdType i = part_id; i < num_node; i += num_part) {
@@ -290,6 +292,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   _part_indices.clear();
   _part_indices.resize(num_part, nullptr);
 
+  LOG(DEBUG) << "before graph partition";
   if (RunConfig::dist_graph_part_cpu < 1) {
     for (IdType part_id : part_ids) {
       _DatasetPartition(dataset, sampler_ctx, part_id, num_part);
@@ -335,6 +338,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
 
   };
 
+  LOG(DEBUG) << "send and receive graph partitions";
   if (RunConfig::dist_graph_part_cpu < 1) {
     IdType num_node = dataset->num_node;
     std::vector<size_t> part_size_vec(num_part);
