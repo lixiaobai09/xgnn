@@ -25,15 +25,15 @@ def parse_args():
     return ret
 
 def parse_data(file_name, system, dataset, batch_size,
-               pattern = r'^Valid Acc: (.+)\% \| .* \| Time Cost: (.+)'):
+        pattern = r'^Valid Acc: (.+)\% \| .* \| Time Cost: (.+) \| Epoch: (.+)'):
     with open(file_name, 'r') as file:
         for line in file:
             m = re.match(pattern, line)
             if m:
                 # print('{} {}'.format(m.group(1), m.group(2)))
                 # system(like dgl) dataset batch_size time acc
-                print('{}\t{}\t{}\t{}\t{}'.format(
-                    system, dataset, batch_size, m.group(2), m.group(1)))
+                print('{}\t{}\t{}\t{}\t{}\t{}'.format(
+                    system, dataset, batch_size, m.group(2), m.group(1), m.group(3)))
 
 
 if __name__ == '__main__':
