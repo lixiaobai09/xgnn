@@ -192,17 +192,15 @@ void Engine::LoadGraphDataset() {
   }
 
   double gpu_extract_time = 0.0;
-  // for gpu extract
-  int feat_mmap_flags = (MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED);
-  if (RunConfig::option_huge_page) {
-    feat_mmap_flags = (feat_mmap_flags | MAP_HUGETLB);
-  }
   if (empty_feat_shape.size()) {
     if (RunConfig::gpu_extract) {
       Timer tt;
-      size_t nbytes = GetTensorBytes(feat_data_type, empty_feat_shape);
-      auto feat = mmap(NULL, nbytes, PROT_READ | PROT_WRITE,  feat_mmap_flags, -1, 0);
-      // auto feat = mmap(NULL, nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+      size_t mmap_nbytes = GetTensorBytes(feat_data_type, empty_feat_shape);
+      if (RunConfig::option_huge_page) {
+        size_t hugepage_size = (1l << 21);
+        mmap_nbytes = (mmap_nbytes + hugepage_size - 1) / hugepage_size * hugepage_size;
+      }
+      auto feat = mmap(NULL, mmap_nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       CHECK_NE(feat, MAP_FAILED);
       _dataset->feat = Tensor::FromBlob(feat, feat_data_type,
           empty_feat_shape, MMAP(), "dataset.feat");
@@ -218,8 +216,12 @@ void Engine::LoadGraphDataset() {
         ctx_map[Constant::kFeatFile], "dataset.feat");
     if (RunConfig::gpu_extract) {
       Timer tt;
-      auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, feat_mmap_flags, -1, 0);
-      // auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+      size_t mmap_nbytes = _dataset->feat->NumBytes();
+      if (RunConfig::option_huge_page) {
+        size_t hugepage_size = (1l << 21);
+        mmap_nbytes = (mmap_nbytes + hugepage_size - 1) / hugepage_size * hugepage_size;
+      }
+      auto feat = mmap(NULL, mmap_nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       CHECK_NE(feat, MAP_FAILED);
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
       for (size_t i = 0; i < _dataset->feat->Shape()[0]; i++) {

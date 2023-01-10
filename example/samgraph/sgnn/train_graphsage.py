@@ -231,15 +231,15 @@ def run(worker_id, run_config):
             total_times.append(total_time)
 
             # sam.report_step(epoch, step)
-            if (run_config['report_acc']) and \
-                    (step % run_config['report_acc'] == 0) and (worker_id == 0):
-                tt = time.time()
-                acc = accuracy.valid_acc(model, train_device)
-                acc_time = (time.time() - tt)
-                epoch_acc_time += acc_time
-                run_acc_total += acc_time
-                print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f}'.format(
-                    acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total)))
+            # if (run_config['report_acc']) and \
+            #         (step % run_config['report_acc'] == 0) and (worker_id == 0):
+            #     tt = time.time()
+            #     acc = accuracy.valid_acc(model, train_device)
+            #     acc_time = (time.time() - tt)
+            #     epoch_acc_time += acc_time
+            #     run_acc_total += acc_time
+            #     print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f}'.format(
+            #         acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total)))
             total_steps += run_config['num_worker']
 
             if run_config['peek_memory']:
@@ -289,8 +289,8 @@ def run(worker_id, run_config):
             acc = accuracy.valid_acc(model, train_device)
             acc_time = (time.time() - tt)
             run_acc_total += acc_time
-            print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f}'.format(
-                acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total)))
+            print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f} | Epoch: {:03d}'.format(
+                acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total), epoch))
         if worker_id == 0:
             (free, total) = torch.cuda.mem_get_info()
             used = (total - free) / 1024 / 1024 / 1024
