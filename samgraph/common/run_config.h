@@ -110,7 +110,8 @@ struct RunConfig {
   static bool                 part_cache;
 
   static bool                 gpu_extract;
-  
+  // if use huge page for feature data
+  static bool                 option_huge_page;
 
   static inline bool UseGPUCache() {
     return cache_percentage > 0 && run_arch != kArch1;

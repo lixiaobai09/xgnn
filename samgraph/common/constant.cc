@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -61,6 +61,7 @@ const std::string Constant::kEnvEmptyFeat = "SAMGRAPH_EMPTY_FEAT";
 const std::string Constant::kEnvSamBackCudaLaunchBlocking = "SAMBACK_CUDA_LAUNCH_BLOCKING";
 const std::string Constant::kEnvTrainSetPart = "SAMGRAPH_TRAIN_SET_PART";
 const std::string Constant::kEnvFakeFeatDim = "SAMGRAPH_FAKE_FEAT_DIM";
+const std::string Constant::kEnvHugePage= "SAMGRAPH_HUGE_PAGE";
 
 const std::string Constant::kNodeAccessLogFile = "node_access";
 const std::string Constant::kNodeAccessFrequencyFile = "node_access_frequency";

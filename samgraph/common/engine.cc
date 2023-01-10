@@ -192,11 +192,16 @@ void Engine::LoadGraphDataset() {
   }
 
   double gpu_extract_time = 0.0;
+  // for gpu extract
+  int feat_mmap_flags = (MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED);
+  if (RunConfig::option_huge_page) {
+    feat_mmap_flags = (feat_mmap_flags | MAP_HUGETLB);
+  }
   if (empty_feat_shape.size()) {
     if (RunConfig::gpu_extract) {
       Timer tt;
       size_t nbytes = GetTensorBytes(feat_data_type, empty_feat_shape);
-      auto feat = mmap(NULL, nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED | MAP_HUGETLB, -1, 0);
+      auto feat = mmap(NULL, nbytes, PROT_READ | PROT_WRITE,  feat_mmap_flags, -1, 0);
       // auto feat = mmap(NULL, nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       CHECK_NE(feat, MAP_FAILED);
       _dataset->feat = Tensor::FromBlob(feat, feat_data_type,
@@ -213,7 +218,7 @@ void Engine::LoadGraphDataset() {
         ctx_map[Constant::kFeatFile], "dataset.feat");
     if (RunConfig::gpu_extract) {
       Timer tt;
-      auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED | MAP_HUGETLB, -1, 0);
+      auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, feat_mmap_flags, -1, 0);
       // auto feat = mmap(NULL, _dataset->feat->NumBytes(), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       CHECK_NE(feat, MAP_FAILED);
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
@@ -222,7 +227,11 @@ void Engine::LoadGraphDataset() {
         size_t off = i * nbytes;
         std::memcpy(feat + off, _dataset->feat->Data() + off, nbytes);
       }
-      _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(MMAP_HUGEPAGE), _dataset->feat->Name());
+      int mmap_device_id = 0;
+      if (RunConfig::option_huge_page) {
+        mmap_device_id = MMAP_HUGEPAGE;
+      }
+      _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(mmap_device_id), _dataset->feat->Name());
       gpu_extract_time += tt.Passed();
     }
   }

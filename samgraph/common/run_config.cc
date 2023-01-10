@@ -99,6 +99,8 @@ bool                 RunConfig::part_cache                     = false;
 
 bool                 RunConfig::gpu_extract                    = false;
 
+bool                 RunConfig::option_huge_page               = false;
+
 void RunConfig::LoadConfigFromEnv() {
   if (IsEnvSet(Constant::kEnvSamBackCudaLaunchBlocking)) {
     RunConfig::option_samback_cuda_launch_blocking = true;
@@ -121,6 +123,10 @@ void RunConfig::LoadConfigFromEnv() {
 
   if (IsEnvSet(Constant::kEnvDumpTrace)) {
     RunConfig::option_dump_trace = true;
+  }
+
+  if (IsEnvSet(Constant::kEnvHugePage)) {
+    RunConfig::option_huge_page = true;
   }
   if (GetEnv(Constant::kEnvEmptyFeat) != "") {
     RunConfig::option_empty_feat = std::stoul(GetEnv(Constant::kEnvEmptyFeat));
