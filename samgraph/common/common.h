@@ -293,6 +293,7 @@ constexpr static int CPU_CLIB_MALLOC_DEVICE = 1;
 
 constexpr static int MMAP_RO_DEVICE = 0;
 constexpr static int MMAP_RW_DEVICE = 1;
+constexpr static int MMAP_HUGEPAGE= 2;
 
 Context CPU(int device_id = CPU_CUDA_HOST_MALLOC_DEVICE);
 Context CPU_CLIB(int device_id = CPU_CLIB_MALLOC_DEVICE);

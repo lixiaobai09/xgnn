@@ -71,14 +71,7 @@ Tensor::~Tensor() {
     return;
   }
 
-  if (_name == "dataset.feat" && RunConfig::gpu_extract) {
-    // use a special huge page
-    size_t hugesize = (1l << 21);
-    _nbytes = (_nbytes + hugesize - 1) / hugesize * hugesize;
-    Device::Get(_ctx)->FreeWorkspace(_ctx, _data, _nbytes);
-  } else {
-    Device::Get(_ctx)->FreeWorkspace(_ctx, _data, _nbytes);
-  }
+  Device::Get(_ctx)->FreeWorkspace(_ctx, _data, _nbytes);
   LOG(DEBUG) << "Tensor " << _name << " has been freed";
 }
 

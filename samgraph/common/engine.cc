@@ -222,7 +222,7 @@ void Engine::LoadGraphDataset() {
         size_t off = i * nbytes;
         std::memcpy(feat + off, _dataset->feat->Data() + off, nbytes);
       }
-      _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(), _dataset->feat->Name());
+      _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(MMAP_HUGEPAGE), _dataset->feat->Name());
       gpu_extract_time += tt.Passed();
     }
   }
