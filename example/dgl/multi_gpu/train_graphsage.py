@@ -343,15 +343,15 @@ def run(worker_id, run_config):
             epoch_num_node += num_nodes[-1]
             epoch_num_sample += num_samples[-1]
 
-            if (run_config['report_acc']) and \
-                    (total_steps % run_config['report_acc'] == 0) and (worker_id == 0):
-                tt = time.time()
-                acc = accuracy.valid_acc(model, train_device)
-                acc_time = (time.time() - tt)
-                epoch_acc_time += acc_time
-                run_acc_total += acc_time
-                print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f}'.format(
-                    acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total)))
+            # if (run_config['report_acc']) and \
+            #         (total_steps % run_config['report_acc'] == 0) and (worker_id == 0):
+            #     tt = time.time()
+            #     acc = accuracy.valid_acc(model, train_device)
+            #     acc_time = (time.time() - tt)
+            #     epoch_acc_time += acc_time
+            #     run_acc_total += acc_time
+            #     print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f}'.format(
+            #         acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total)))
             total_steps += run_config['num_worker']
 
             '''
@@ -380,8 +380,8 @@ def run(worker_id, run_config):
             acc = accuracy.valid_acc(model, train_device)
             acc_time = (time.time() - tt)
             run_acc_total += acc_time
-            print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f}'.format(
-                acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total)))
+            print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f} | Epoch: {:03d}'.format(
+                acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total), epoch))
 
     if num_worker > 1:
         torch.distributed.barrier()
