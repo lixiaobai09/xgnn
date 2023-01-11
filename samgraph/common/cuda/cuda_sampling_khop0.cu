@@ -34,7 +34,7 @@
 #include "cuda_utils.h"
 #include "cuda_engine.h"
 
-// #define NEW_ALGO
+#define NEW_ALGO
 
 namespace samgraph {
 namespace common {
@@ -114,7 +114,7 @@ __global__ void sample_khop0(GraphType graph,
   size_t i =  blockIdx.x * blockDim.x * blockDim.y + threadIdx.x * blockDim.y + threadIdx.y;
   // i is out of bound in num_random_states, so use a new curand
   curandState local_state;
-  curand_init(i, 0, 0, &local_state);
+  curand_init(i + num_input, 0, 0, &local_state);
 
   while (index < last_index) {
     const IdType rid = input[index];
