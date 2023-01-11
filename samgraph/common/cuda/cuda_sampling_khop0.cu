@@ -43,8 +43,9 @@ namespace cuda {
 namespace {
 
 #ifndef NEW_ALGO
-template <size_t BLOCK_SIZE, size_t TILE_SIZE>
-__global__ void sample_khop0(const IdType *indptr, const IdType *indices,
+template <size_t BLOCK_SIZE, size_t TILE_SIZE,
+         typename GraphType>
+__global__ void sample_khop0(GraphType graph,
                              const IdType *input, const size_t num_input,
                              const size_t fanout, IdType *tmp_src,
                              IdType *tmp_dst, curandState *random_states,
@@ -61,14 +62,16 @@ __global__ void sample_khop0(const IdType *indptr, const IdType *indices,
        index += BLOCK_SIZE) {
     if (index < num_input) {
       const IdType rid = input[index];
-      const IdType off = indptr[rid];
-      const IdType len = indptr[rid + 1] - indptr[rid];
+      const IdType *edges = graph[rid];
+      const IdType len = graph.NumEdge(rid);
+      // const IdType off = indptr[rid];
+      // const IdType len = indptr[rid + 1] - indptr[rid];
 
       if (len <= fanout) {
         size_t j = 0;
         for (; j < len; ++j) {
           tmp_src[index * fanout + j] = rid;
-          tmp_dst[index * fanout + j] = indices[off + j];
+          tmp_dst[index * fanout + j] = edges[j];
         }
 
         for (; j < fanout; ++j) {
@@ -78,13 +81,13 @@ __global__ void sample_khop0(const IdType *indptr, const IdType *indices,
       } else {
         for (size_t j = 0; j < fanout; ++j) {
           tmp_src[index * fanout + j] = rid;
-          tmp_dst[index * fanout + j] = indices[off + j];
+          tmp_dst[index * fanout + j] = edges[j];
         }
 
         for (size_t j = fanout; j < len; ++j) {
           size_t k = curand(&local_state) % (j + 1);
           if (k < fanout) {
-            tmp_dst[index * fanout + k] = indices[off + j];
+            tmp_dst[index * fanout + k] = edges[j];
           }
         }
       }
@@ -111,7 +114,7 @@ __global__ void sample_khop0(GraphType graph,
   size_t i =  blockIdx.x * blockDim.x * blockDim.y + threadIdx.x * blockDim.y + threadIdx.y;
   // i is out of bound in num_random_states, so use a new curand
   curandState local_state;
-  curand_init(i, 0, 0, &local_state);
+  curand_init(i + num_input, 0, 0, &local_state);
 
   while (index < last_index) {
     const IdType rid = input[index];
@@ -263,9 +266,9 @@ void GPUSampleKHop0(GraphType graph,
              << ToReadableSize(num_input * fanout * sizeof(IdType));
 
 #ifndef NEW_ALGO
-    sample_khop0<Constant::kCudaBlockSize, Constant::kCudaTileSize>
+    sample_khop0<Constant::kCudaBlockSize, Constant::kCudaTileSize, GraphType>
         <<<grid, block, 0, cu_stream>>>(
-            indptr, indices, input, num_input, fanout, tmp_src, tmp_dst,
+            graph, input, num_input, fanout, tmp_src, tmp_dst,
             random_states->GetStates(), random_states->NumStates());
     sampler_device->StreamSync(ctx, stream);
 #else
