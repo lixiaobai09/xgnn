@@ -291,12 +291,13 @@ def run(worker_id, run_config):
             run_acc_total += acc_time
             print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f} | Epoch: {:03d}'.format(
                 acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total), epoch))
+        (free, total) = torch.cuda.mem_get_info()
+        peek_memory = max(peek_memory, total - free)
         if worker_id == 0:
-            (free, total) = torch.cuda.mem_get_info()
-            used = (total - free) / 1024 / 1024 / 1024
+            gpu_used_memory = (total - free) / 1024 / 1024 / 1024
             print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f}'.format(
                 epoch, epoch_total_times_python[-1], epoch_sample_total_times[-1], epoch_copy_times[-1], epoch_train_total_times_profiler[-1],
-                used))
+                gpu_used_memory))
 
     # sync the train workers
     if num_worker > 1:
@@ -359,8 +360,7 @@ def run(worker_id, run_config):
     print(f"memory({device}):graph={sam.get_log_init_value(sam.kLogInitL1GraphMemory)}")
     print(f"memory({device}):feature={sam.get_log_init_value(sam.kLogInitL1FeatMemory)}")
     print(f"memory({device}):workspace_total={sam.get_log_init_value(sam.kLogInitL1WorkspaceTotalMemory)}")
-    if run_config['peek_memory']:
-        print(f'memory({device}):peek_memory={peek_memory}')
+    print(f'memory({device}):peek_memory={peek_memory}')
 
 
 if __name__ == '__main__':
