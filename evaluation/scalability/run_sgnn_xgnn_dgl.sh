@@ -11,16 +11,29 @@ export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
 # config
 log_dir=${MY_DIR}/run-logs/${TIME_STAMPS}
-dataset=papers100M
-ds_short=pa
-model=gcn
 num_epoch=3
+
+mkdir -p "$log_dir"
+
+pa_gcn_cache_pct=(0.07 0.13 0.15 0.15 0.14 0.15 0.16 0.16)
+uk_graphsage_cache_pct=()
+
+declare -A cache_percent=(
+    ["pa_gcn"]=pa_cache_pct
+    ["uk_graphsage"]=uk_graphsage_cache_pct
+)
+
+#input: dataset, ds_short, model
+scalability() {
+
+dataset=$1
+ds_short=$2
+model=$3
+
 
 dgl_log=${log_dir}/dgl_${model}_${ds_short}
 sgnn_log=${log_dir}/sgnn_${model}_${ds_short}
 xgnn_log=${log_dir}/xgnn_${model}_${ds_short}
-
-mkdir -p "$log_dir"
 
 ### 1GPU ###
 log=${dgl_log}_1wk
@@ -141,3 +154,11 @@ log=${xgnn_log}_8wk
 python ${sgnn_dir}/train_${model}.py --num-worker 8 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph --cache-percentage 0.16 > ${log}.log 2> ${log}.err
+
+}
+
+# pa gcn
+scalability "papers100M" "pa" "gcn"
+
+# uk graphsage
+scalability "uk-2006-05" "uk" "graphsage"
