@@ -41,8 +41,10 @@ def parse_result(file_name, show_list, split_str):
 if __name__ == '__main__':
     arguments   = parse_args()
     directory   = arguments['directory']
+    print('model\tdataset\tdgl\tsgnn\txgnn')
     for model in model_list:
         for dataset in dataset_list:
+            print(f'{model}\t{dataset}\t', end='')
             for system in system_list:
                 file_name_pipe = f'{directory}/{system}_{model}_{dataset}.log'
                 file_name_break = \
@@ -55,4 +57,7 @@ if __name__ == '__main__':
                             'train_total'
                         ],
                         split_str = '\t')
-                parse_result(file_name_pipe, ['total'], '\n')
+                if (system == 'xgnn'):
+                    parse_result(file_name_pipe, ['total'], '\n')
+                else:
+                    parse_result(file_name_pipe, ['total'], ' | ')
