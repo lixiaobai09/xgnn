@@ -14,12 +14,17 @@ model_list = ['gcn', 'graphsage', 'pinsage']
 dataset_list = ['tw', 'pa', 'uk', 'cf']
 system_list = ['dgl', 'sgnn', 'xgnn']
 
-mock = True
-OOM = 'OOM'
-
-split_in  = '\t'
-split_out = ' | '
-split_end = '\n'
+mock = False
+if (mock):
+    OOM = 'OOM'
+    split_in  = '\t'
+    split_out = ' | '
+    split_end = '\n'
+else:
+    OOM = '\\texttt{OOM}'
+    split_in  = '} & {'
+    split_out = '}\n&&{'
+    split_end = '} \\\\\n'
 
 def parse_args():
     argparser = argparse.ArgumentParser('Acc Timeline Parser')
@@ -83,6 +88,8 @@ if __name__ == '__main__':
         for dataset in dataset_list:
             if (mock):
                 print(f'{model}\t{dataset}\t', end='')
+            else:
+                print('\n&&{', end='')
             for system in system_list:
                 file_name_pipe = f'{directory}/{system}_{model}_{dataset}.log'
                 if (system == 'dgl'):
@@ -94,7 +101,7 @@ if __name__ == '__main__':
                                 'epoch_time'
                             ],
                             split_str = split_in,
-                            end_str = ' | ')
+                            end_str = split_out)
                 else:
                     file_name_break = \
                             f'{directory}/{system}_{model}_{dataset}_break.log'
