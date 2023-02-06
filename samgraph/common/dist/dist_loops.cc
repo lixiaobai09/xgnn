@@ -608,7 +608,7 @@ void DoGPUFeatureExtract(TaskPtr task) {
   if (RunConfig::option_empty_feat) {
     cuda::GPUMockExtract(
       task->input_feat->MutableData(), dataset->feat->Data(),
-      input_data, num_input, feat_dim, feat_type, 
+      input_data, num_input, feat_dim, feat_type,
       trainer_ctx, stream, task->key
     );
   } else {
@@ -1222,21 +1222,26 @@ void DoArch6GPUCacheFeatureCopy(TaskPtr task) {
 
   CHECK(input_nodes->Ctx() == trainer_ctx);
 
-  auto train_feat = Tensor::Empty(feat_type, {num_input, feat_dim}, trainer_ctx, 
+  auto train_feat = Tensor::Empty(feat_type, {num_input, feat_dim}, trainer_ctx,
                                   "task.train_feat_cuda_" + std::to_string(task->key));
+  LOG(DEBUG) << "step " << DistEngine::Get()->GetShuffler()->Step()
+    << " extracting train feat size: "
+    << ToReadableSize(train_feat->NumBytes());
+  // LOG(INFO) << "free workspace size is: "
+  //   << ToReadableSize(trainer_device->FreeWorkspaceSize(trainer_ctx));
   // 0. Get index of miss data and cache data
   Timer t0;
 
   size_t num_output_miss = task->miss_cache_index.num_miss;
   size_t num_output_cache = task->miss_cache_index.num_cache;
 
-  auto trainer_output_miss_src_index = 
+  auto trainer_output_miss_src_index =
       task->miss_cache_index.miss_src_index->Ptr<IdType>();
-  auto trainer_output_miss_dst_index = 
+  auto trainer_output_miss_dst_index =
       task->miss_cache_index.miss_dst_index->Ptr<IdType>();
-  auto trainer_output_cache_src_index = 
+  auto trainer_output_cache_src_index =
       task->miss_cache_index.cache_src_index->Ptr<IdType>();
-  auto trainer_output_cache_dst_index = 
+  auto trainer_output_cache_dst_index =
       task->miss_cache_index.cache_dst_index->Ptr<IdType>();
 
   CHECK_EQ(num_output_miss + num_output_cache, num_input);
@@ -1244,9 +1249,9 @@ void DoArch6GPUCacheFeatureCopy(TaskPtr task) {
 
   // 1. Extract the miss data
   Timer t1;
-  
-  cache_manager->GPUExtractMissData(train_feat->MutableData(), 
-                                    trainer_output_miss_src_index, trainer_output_miss_dst_index, 
+
+  cache_manager->GPUExtractMissData(train_feat->MutableData(),
+                                    trainer_output_miss_src_index, trainer_output_miss_dst_index,
                                     num_output_miss, stream);
   trainer_device->StreamSync(trainer_ctx, stream);
   double extract_miss_time = t1.Passed();
@@ -1254,7 +1259,7 @@ void DoArch6GPUCacheFeatureCopy(TaskPtr task) {
   // 2. Combine cache data
   Timer t2;
   cache_manager->CombineCacheData(train_feat->MutableData(),
-                                  trainer_output_cache_src_index, trainer_output_cache_dst_index, 
+                                  trainer_output_cache_src_index, trainer_output_cache_dst_index,
                                   num_output_cache, stream);
   trainer_device->StreamSync(trainer_ctx, stream);
 
