@@ -277,9 +277,13 @@ def run(worker_id, run_config):
         if worker_id == 0:
             (free, total) = torch.cuda.mem_get_info()
             used = (total - free) / 1024 / 1024 / 1024
-            print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f}'.format(
+            torch_mem_reserved = torch.cuda.memory_reserved() / 1024 / 1024 / 1024
+            print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f} | torch memory used {:.2f}'.format(
                 epoch, epoch_total_times_python[-1], epoch_sample_total_times[-1], epoch_copy_times[-1], epoch_train_total_times_profiler[-1],
-                used))
+                used, torch_mem_reserved))
+            # print("stats:\n", torch.cuda.memory_stats())
+            # print("summary:\n", torch.cuda.memory_summary())
+            # print("snapshot:\n", torch.cuda.memory_snapshot())
 
     # sync the train workers
     if num_worker > 1:
