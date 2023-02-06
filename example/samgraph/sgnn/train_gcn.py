@@ -118,8 +118,13 @@ def run(worker_id, run_config):
 
     print('[Worker {:d}/{:d}] Started with PID {:d}({:s})'.format(
         worker_id, num_worker, os.getpid(), torch.cuda.get_device_name(ctx)))
+    init_t1 = time.time()
     sam.sample_init(worker_id, ctx)
+    init_t2 = time.time()
     sam.train_init(worker_id, ctx)
+    init_t3 = time.time()
+    print("sample init time: ", (init_t2 - init_t1))
+    print("train init time : ", (init_t3 - init_t2))
 
     if num_worker > 1:
         dist_init_method = 'tcp://{master_ip}:{master_port}'.format(
@@ -349,7 +354,9 @@ def run(worker_id, run_config):
 
 if __name__ == '__main__':
     run_config = get_run_config()
+    init_t0 = time.time()
     run_init(run_config)
+    print("init run time: ", (time.time() - init_t0))
 
     num_worker = run_config['num_worker']
 
