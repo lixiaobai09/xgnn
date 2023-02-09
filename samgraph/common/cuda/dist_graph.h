@@ -55,8 +55,8 @@ class DeviceP2PComm {
  private:
   DeviceP2PComm(int num_worker);
   std::vector<std::bitset<kMaxDevice>> SplitClique(int device_id, int &my_clique);
-  void FindClique(std::bitset<kMaxDevice> clique, 
-                  std::bitset<kMaxDevice> neighbor, 
+  void FindClique(std::bitset<kMaxDevice> clique,
+                  std::bitset<kMaxDevice> neighbor,
                   std::bitset<kMaxDevice> none,
                   std::bitset<kMaxDevice> &max_clique);
 
@@ -94,9 +94,9 @@ class DistArray {
       auto ptr = static_cast<T *>(devptrs[rk]);
       return ptr[idx];
     }
-    
+
     IdType rank, comm_size;
-    void **devptrs; 
+    void **devptrs;
   };
   DeviceHandle GetDeviceHandle() const {
     return DistArray::DeviceHandle{_comm->Rank(), _comm->CommSize(), _devptrs_d};
@@ -182,8 +182,12 @@ class DistGraph {
   }
 
   struct GroupConfig{
+    // for which GPU context
     Context ctx;
+    // store which partition IDs
     std::vector<IdType> part_ids;
+    // access part 0,1, ... n from ctx_group[0], ctx_group[1] ... ctx_group[n]
+    // ctx_group.size() is equal to running GPUs
     std::vector<Context> ctx_group;
     GroupConfig(Context ctx_, const std::vector<IdType> &part_ids_,
         const std::vector<Context> &group_)
