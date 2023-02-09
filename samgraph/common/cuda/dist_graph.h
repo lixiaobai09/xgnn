@@ -113,9 +113,11 @@ class DeviceDistGraph {
  public:
   DeviceDistGraph(IdType **part_indptr, IdType **part_indices,
       IdType num_partition,
+      IdType num_cache_node,
       IdType num_node)
     : _part_indptr(part_indptr), _part_indices(part_indices),
-      _num_partition(num_partition), _num_node(num_node) {};
+      _num_partition(num_partition), _num_cache_node(num_cache_node),
+      _num_node(num_node) {};
 
   inline __device__ IdType NumEdge(IdType node_id) {
     assert(node_id < _num_node);
@@ -136,13 +138,20 @@ class DeviceDistGraph {
  private:
   inline __device__ void _GetRealPartId(IdType node_id,
       IdType *part_id, IdType *real_id) {
-    *part_id = (node_id % _num_partition);
-    *real_id = (node_id / _num_partition);
+    if (node_id < _num_cache_node) {
+      *part_id = (node_id % _num_partition);
+      *real_id = (node_id / _num_partition);
+    } else {
+      // the host memory whole graph in the last position
+      *part_id = _num_partition;
+      *real_id = node_id;
+    }
   }
 
   IdType **_part_indptr;
   IdType **_part_indices;
   IdType _num_partition;
+  IdType _num_cache_node;
   IdType _num_node;
 };
 
@@ -171,7 +180,8 @@ class DeviceNormalGraph {
 
 class DistGraph {
  public:
-  void DatasetLoad(Dataset *dataset, int sampler_id, Context sampler_ctx);
+  void DatasetLoad(Dataset *dataset, int sampler_id, Context sampler_ctx,
+      IdType num_cache_node);
   DeviceDistGraph DeviceHandle() const;
 
   static void Create(std::vector<Context> ctxes);
@@ -204,12 +214,13 @@ class DistGraph {
   DistGraph(std::vector<Context> ctxes);
   void _Barrier();
   void _DatasetPartition(const Dataset *dataset, Context ctx,
-    IdType part_id, IdType num_part);
+    IdType part_id, IdType num_part, IdType num_part_node);
 
   int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
   std::vector<GroupConfig> _group_configs;
+  IdType _num_cache_node;
   IdType _num_node;
 
   IdType **_d_part_indptr;

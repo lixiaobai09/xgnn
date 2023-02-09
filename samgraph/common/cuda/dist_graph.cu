@@ -233,21 +233,21 @@ DistArray::~DistArray() {
 std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
 
 void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
-    IdType part_id, IdType num_part) {
+    IdType part_id, IdType num_part, IdType num_part_node) {
   auto indptr_data = dataset->indptr->CPtr<IdType>();
   auto indices_data = dataset->indices->CPtr<IdType>();
-  IdType num_node = dataset->num_node;
   IdType part_edge_count = 0;
-  for (IdType i = part_id; i < num_node; i += num_part) {
+  for (IdType i = part_id; i < num_part_node; i += num_part) {
     IdType num_edge = (indptr_data[i + 1] - indptr_data[i]);
     part_edge_count += num_edge;
   }
+  CHECK_NE(part_edge_count, 0);
 
   std::stringstream ctx_name;
   ctx_name << ctx;
 
-  IdType indptr_size = (num_node / num_part +
-      (part_id < num_node % num_part? 1 : 0) + 1);
+  IdType indptr_size = (num_part_node / num_part +
+      (part_id < num_part_node % num_part? 1 : 0) + 1);
   _part_indptr[part_id] = Tensor::Empty(kI32, {indptr_size}, CPU(),
       "indptr in device:cpu" );
   _part_indices[part_id] = Tensor::Empty(kI32, {part_edge_count}, CPU(),
@@ -256,7 +256,7 @@ void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
     << ToReadableSize((indptr_size + part_edge_count) * sizeof(IdType));
   part_edge_count = 0;
 
-  for (IdType i = part_id; i < num_node; i += num_part) {
+  for (IdType i = part_id; i < num_part_node; i += num_part) {
     IdType num_edge = (indptr_data[i + 1] - indptr_data[i]);
     IdType real_id = (i / num_part);
     _part_indptr[part_id]->Ptr<IdType>()[real_id] = part_edge_count;
@@ -279,10 +279,13 @@ void DistGraph::_DatasetPartition(const Dataset *dataset, Context ctx,
 }
 
 void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
-    Context sampler_ctx) {
+    Context sampler_ctx, IdType num_cache_node) {
 
   CHECK(sampler_ctx == _group_configs[sampler_id].ctx);
+  CHECK(num_cache_node <= dataset->num_node);
   _sampler_id = sampler_id;
+  _num_cache_node = num_cache_node;
+  _num_node = dataset->num_node;
 
   auto part_ids = _group_configs[sampler_id].part_ids;
   auto ctx_group = _group_configs[sampler_id].ctx_group;
@@ -295,12 +298,14 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   LOG(DEBUG) << "before graph partition";
   if (RunConfig::dist_graph_part_cpu < 1) {
     for (IdType part_id : part_ids) {
-      _DatasetPartition(dataset, sampler_ctx, part_id, num_part);
+      _DatasetPartition(dataset, sampler_ctx, part_id, num_part,
+          _num_cache_node);
     }
   } else {
     auto ctx_group = _group_configs[sampler_id].ctx_group;
     for (int i = 0; i < part_ids.size(); i++) {
-      _DatasetPartition(dataset, ctx_group[i], part_ids[i], num_part);
+      _DatasetPartition(dataset, ctx_group[i], part_ids[i], num_part,
+          dataset->num_node);
     }
   }
 
@@ -340,18 +345,17 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
 
   LOG(DEBUG) << "send and receive graph partitions";
   if (RunConfig::dist_graph_part_cpu < 1) {
-    IdType num_node = dataset->num_node;
     std::vector<size_t> part_size_vec(num_part);
     for (size_t i = 0; i < num_part; ++i) {
-      part_size_vec[i] = (num_node / num_part +
-          (i < num_node % num_part? 1 : 0) + 1);
+      part_size_vec[i] = (_num_cache_node / num_part +
+          (i < _num_cache_node % num_part? 1 : 0) + 1);
     }
     DataIpcShare(_part_indptr, part_size_vec, "dataset part indptr");
 
     part_size_vec.clear();
     part_size_vec.resize(num_part, 0);
     auto indptr_data = dataset->indptr->CPtr<IdType>();
-    for (IdType i = 0; i < num_node; ++i) {
+    for (IdType i = 0; i < _num_cache_node; ++i) {
       IdType num_edge = indptr_data[i + 1] - indptr_data[i];
       IdType tmp_part_id = (i % num_part);
       part_size_vec[tmp_part_id] += num_edge;
@@ -359,29 +363,31 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
     DataIpcShare(_part_indices, part_size_vec, "dataset part indices");
   }
 
-  CUDA_CALL(cudaMalloc((void **)&_d_part_indptr, num_part * sizeof(IdType *)));
-  CUDA_CALL(cudaMalloc((void **)&_d_part_indices, num_part * sizeof(IdType *)));
+  CUDA_CALL(cudaMalloc((void **)&_d_part_indptr, (num_part + 1) * sizeof(IdType *)));
+  CUDA_CALL(cudaMalloc((void **)&_d_part_indices, (num_part + 1) * sizeof(IdType *)));
 
   IdType **h_part_indptr, **h_part_indices;
-  CUDA_CALL(cudaMallocHost(&h_part_indptr, num_part * sizeof(IdType*)));
-  CUDA_CALL(cudaMallocHost(&h_part_indices, num_part * sizeof(IdType*)));
+  CUDA_CALL(cudaMallocHost(&h_part_indptr, (num_part + 1) * sizeof(IdType*)));
+  CUDA_CALL(cudaMallocHost(&h_part_indices, (num_part + 1) * sizeof(IdType*)));
   for (IdType i = 0; i < num_part; i++) {
     h_part_indptr[i] = _part_indptr[i]->Ptr<IdType>();
     h_part_indices[i] = _part_indices[i]->Ptr<IdType>();
   }
-  CUDA_CALL(cudaMemcpy(_d_part_indptr, h_part_indptr, sizeof(IdType *) * num_part, cudaMemcpyDefault));
-  CUDA_CALL(cudaMemcpy(_d_part_indices, h_part_indices, sizeof(IdType *) * num_part, cudaMemcpyDefault));
+  // the last point to host whole graph
+  h_part_indptr[num_part] = dataset->indptr->Ptr<IdType>();
+  h_part_indices[num_part] = dataset->indices->Ptr<IdType>();
+  CUDA_CALL(cudaMemcpy(_d_part_indptr, h_part_indptr, sizeof(IdType *) * (num_part + 1), cudaMemcpyDefault));
+  CUDA_CALL(cudaMemcpy(_d_part_indices, h_part_indices, sizeof(IdType *) * (num_part + 1), cudaMemcpyDefault));
 
   CUDA_CALL(cudaFreeHost(h_part_indptr));
   CUDA_CALL(cudaFreeHost(h_part_indices));
-
-  _num_node = dataset->num_node;
 }
 
 DeviceDistGraph DistGraph::DeviceHandle() const {
   return DeviceDistGraph(
       _d_part_indptr, _d_part_indices,
       _group_configs[_sampler_id].ctx_group.size(),
+      _num_cache_node,
       _num_node);
 }
 

@@ -215,7 +215,13 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
       _dataset->prob_prefix_table = Tensor::CopyTo(_dataset->prob_prefix_table, sampler_ctx, stream, Constant::kAllocNoScale);
     }
   } else if (RunConfig::use_dist_graph == true) {
-    cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx);
+    CUDA_CALL(cudaHostRegister(_dataset->indptr->MutableData(),
+          _dataset->indptr->NumBytes(), cudaHostRegisterReadOnly));
+    CUDA_CALL(cudaHostRegister(_dataset->indices->MutableData(),
+          _dataset->indices->NumBytes(), cudaHostRegisterReadOnly));
+    cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx,
+        // TODO: change this to use a percentage value
+        _dataset->num_node / 2);
   }
   if (RunConfig::gpu_extract) {
     CUDA_CALL(cudaHostRegister(_dataset->feat->MutableData(), _dataset->feat->NumBytes(), cudaHostRegisterReadOnly));
