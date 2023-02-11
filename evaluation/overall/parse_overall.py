@@ -14,7 +14,7 @@ model_list = ['gcn', 'graphsage', 'pinsage']
 dataset_list = ['tw', 'pa', 'uk', 'cf']
 system_list = ['dgl', 'sgnn', 'xgnn']
 
-mock = False
+mock = True
 if (mock):
     OOM = 'OOM'
     split_in  = '\t'

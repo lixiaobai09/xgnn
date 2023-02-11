@@ -215,6 +215,7 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
       _dataset->prob_prefix_table = Tensor::CopyTo(_dataset->prob_prefix_table, sampler_ctx, stream, Constant::kAllocNoScale);
     }
   } else if (RunConfig::use_dist_graph == true) {
+    Timer tt;
     CUDA_CALL(cudaHostRegister(_dataset->indptr->MutableData(),
           _dataset->indptr->NumBytes(), cudaHostRegisterReadOnly));
     CUDA_CALL(cudaHostRegister(_dataset->indices->MutableData(),
@@ -231,10 +232,13 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
     }
     cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx,
         num_cache_node);
+    LOG(DEBUG) << "DistGraph dataset loading time: " << tt.Passed() << std::endl;
   }
   if (RunConfig::gpu_extract) {
+    Timer tt;
     CUDA_CALL(cudaHostRegister(_dataset->feat->MutableData(), _dataset->feat->NumBytes(), cudaHostRegisterReadOnly));
     CUDA_CALL(cudaHostRegister(_dataset->label->MutableData(), _dataset->label->NumBytes(), cudaHostRegisterReadOnly));
+    LOG(DEBUG) << "register time cost: " << tt.Passed() << std::endl;
   }
   LOG(DEBUG) << "SampleDataCopy finished!";
 }
