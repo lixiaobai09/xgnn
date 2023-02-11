@@ -93,6 +93,7 @@ UMPolicy             RunConfig::unified_memory_policy          = UMPolicy::kDefa
 std::vector<Context> RunConfig::unified_memory_ctxes;
 
 bool                 RunConfig::use_dist_graph                 = false;
+double               RunConfig::dist_graph_percentage          = 0.0f;
 int                  RunConfig::dist_graph_part_cpu            = 0;
 
 bool                 RunConfig::part_cache                     = false;

@@ -219,9 +219,18 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
           _dataset->indptr->NumBytes(), cudaHostRegisterReadOnly));
     CUDA_CALL(cudaHostRegister(_dataset->indices->MutableData(),
           _dataset->indices->NumBytes(), cudaHostRegisterReadOnly));
+    IdType num_edge = _dataset->num_edge;
+    IdType num_node = _dataset->num_node;
+    IdType num_cache_edge = static_cast<IdType>(num_edge * RunConfig::dist_graph_percentage);
+    CHECK(num_cache_edge <= num_edge);
+    // calculate the num_cache_node
+    IdType num_cache_node = 0;
+    auto indptr_data = _dataset->indptr->CPtr<IdType>();
+    while(indptr_data[num_cache_node] < num_cache_edge && num_cache_node < num_node) {
+      ++num_cache_node;
+    }
     cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx,
-        // TODO: change this to use a percentage value
-        _dataset->num_node / 2);
+        num_cache_node);
   }
   if (RunConfig::gpu_extract) {
     CUDA_CALL(cudaHostRegister(_dataset->feat->MutableData(), _dataset->feat->NumBytes(), cudaHostRegisterReadOnly));

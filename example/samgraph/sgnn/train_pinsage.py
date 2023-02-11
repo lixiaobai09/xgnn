@@ -111,8 +111,8 @@ def parse_args(default_run_config):
         '--lr', type=float, default=default_run_config['lr'])
     argparser.add_argument('--dropout', type=float,
                            default=default_run_config['dropout'])
-    argparser.add_argument('--use-dist-graph', action="store_true",
-                            default=False)
+    argparser.add_argument('--use-dist-graph', type=float,
+                           default=0.0)
 
     argparser.add_argument('--unified-memory', action='store_true',
                            default=False)

@@ -59,8 +59,8 @@ def parse_args(default_run_config):
                            default=default_run_config['dropout'])
     argparser.add_argument('--weight-decay', type=float,
                            default=default_run_config['weight_decay'])
-    argparser.add_argument('--use-dist-graph', action="store_true",
-                           default=False)
+    argparser.add_argument('--use-dist-graph', type=float,
+                           default=0.0)
     argparser.add_argument('--dist-graph-part-cpu', type=int, default=0)
     argparser.add_argument('--unified-memory', action='store_true',
                            default=False)

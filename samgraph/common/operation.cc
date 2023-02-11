@@ -187,10 +187,13 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
     RunConfig::presample_epoch = 0;
   }
 
-  if (configs.count("use_dist_graph") > 0
-      && configs["use_dist_graph"] == "True") {
-    RC::use_dist_graph = true;
-    LOG(DEBUG) << "use_dist_graph=True";
+  if (configs.count("use_dist_graph") > 0) {
+    RC::dist_graph_percentage = std::stod(configs["use_dist_graph"]);
+    if (RC::dist_graph_percentage > 0.0) {
+      RC::use_dist_graph = true;
+      LOG(DEBUG) << "use_dist_graph with dist_graph_percentage = "
+        << RC::dist_graph_percentage;
+    }
 
     if (configs.count("dist_graph_part_cpu") > 0) {
       RC::dist_graph_part_cpu = std::stoi(configs["dist_graph_part_cpu"]);
