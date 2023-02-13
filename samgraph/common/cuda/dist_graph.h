@@ -182,6 +182,11 @@ class DistGraph {
  public:
   void DatasetLoad(Dataset *dataset, int sampler_id, Context sampler_ctx,
       IdType num_cache_node);
+  void FeatureLoad(int trainer_id, Context trainer_ctx,
+      const IdType *cache_rank_node, const IdType num_cache_node,
+      DataType dtype, size_t dim,
+      const void* cpu_src_feature_data,
+      StreamHandle stream);
   DeviceDistGraph DeviceHandle() const;
 
   static void Create(std::vector<Context> ctxes);
@@ -215,16 +220,26 @@ class DistGraph {
   void _Barrier();
   void _DatasetPartition(const Dataset *dataset, Context ctx,
     IdType part_id, IdType num_part, IdType num_part_node);
+  void _DataIpcShare(std::vector<TensorPtr> &part_data,
+      const std::vector<std::vector<size_t>> &shape_vec,
+      const std::vector<IdType> &part_ids,
+      Context cur_ctx,
+      const std::vector<Context> &ctx_group,
+      std::string name);
 
   int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
+  std::vector<TensorPtr> _part_feature;
   std::vector<GroupConfig> _group_configs;
   IdType _num_cache_node;
   IdType _num_node;
+  IdType _trainer_id;
+  IdType _num_feature_cache_node;
 
   IdType **_d_part_indptr;
   IdType **_d_part_indices;
+  void **_d_part_feature;
 
   struct SharedData {
     pthread_barrier_t barrier;
