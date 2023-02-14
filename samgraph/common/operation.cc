@@ -491,7 +491,8 @@ void samgraph_data_init() {
   Engine::Create();
   Engine::Get()->Init();
 
-  if (RunConfig::run_arch == kArch6 && RunConfig::use_dist_graph) {
+  if (RunConfig::run_arch == kArch6
+      && (RunConfig::use_dist_graph || RunConfig::part_cache)) {
     std::vector<Context> ctxes(RunConfig::num_worker);
     for (int i = 0; i < RunConfig::num_worker; ++i) {
       ctxes[i] = Context{kGPU, i};

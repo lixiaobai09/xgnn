@@ -39,6 +39,7 @@ std::vector<T> operator- (const std::set<T> &a, const std::set<T> &b) {
 
 }; // namespace
 
+/*
 DeviceP2PComm *DeviceP2PComm::_p2p_comm = nullptr;
 
 DeviceP2PComm::DeviceP2PComm(int num_worker) 
@@ -230,6 +231,7 @@ DistArray::~DistArray() {
   _devptrs_d = nullptr;
   _devptrs_h = nullptr;
 }
+*/
 
 std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
 
@@ -401,6 +403,7 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
 
   _trainer_id = trainer_id;
   _num_feature_cache_node = num_cache_node;
+  _feat_dim = dim;
 
   auto part_ids = _group_configs[trainer_id].part_ids;
   auto ctx_group = _group_configs[trainer_id].ctx_group;
@@ -471,6 +474,15 @@ DeviceDistGraph DistGraph::DeviceGraphHandle() const {
       _num_node);
 }
 
+DeviceDistFeature DistGraph::DeviceFeatureHandle() const {
+  CHECK(_feat_dim != 0);
+  return DeviceDistFeature(
+      _d_part_feature,
+      _group_configs[_trainer_id].ctx_group.size(),
+      _num_feature_cache_node,
+      _feat_dim);
+}
+
 DistGraph::DistGraph(std::vector<Context> ctxes) {
   if (RunConfig::dist_graph_part_cpu < 1) {
     PartitionSolver solver(ctxes);
@@ -500,6 +512,7 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
 
   int num_worker = ctxes.size();
   _sampler_id = static_cast<int>(Constant::kEmptyKey);
+  _trainer_id = static_cast<int>(Constant::kEmptyKey);
 
   _shared_data = static_cast<SharedData*>(mmap(NULL, sizeof(SharedData),
                       PROT_READ|PROT_WRITE, MAP_SHARED|MAP_ANONYMOUS, -1, 0));
@@ -529,6 +542,7 @@ void DistGraph::Release(DistGraph *dist_graph) {
     CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indptr));
     CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indices));
   }
+  // XXX: release the feature data memory
   pthread_barrier_destroy(&dist_graph->_shared_data->barrier);
   munmap(dist_graph->_shared_data, sizeof(SharedData));
 }

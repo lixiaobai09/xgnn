@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -32,26 +32,26 @@ class GPUCacheManager {
                   const IdType* nodes, size_t num_nodes,
                   double cache_percentage);
   // balance partition cache for arch6
-  GPUCacheManager(IdType worker_id, 
-                  Context sampler_ctx, Context trainer_ctx, 
+  GPUCacheManager(IdType worker_id,
+                  Context sampler_ctx, Context trainer_ctx,
                   const void* cpu_src_data, DataType dtype, size_t dim,
                   const IdType* nodes, size_t num_nodes,
                   double cache_percentage,
-                  DeviceP2PComm *comm);
+                  DistGraph *dist_graph);
   ~GPUCacheManager();
 
   /**
    * @brief Get the Miss Cache Index object
-   * 
+   *
    * @param output_miss_src_index original node id
    * @param output_miss_dst_index remapped node id(idx in `nodes`)
-   * @param num_output_miss 
+   * @param num_output_miss
    * @param output_cache_src_index rank of original node id
    * @param output_cache_dst_index remapped node id(idx in `nodes`)
-   * @param num_output_cache 
-   * @param nodes 
-   * @param num_nodes 
-   * @param stream 
+   * @param num_output_cache
+   * @param nodes
+   * @param num_nodes
+   * @param stream
    */
   void GetMissCacheIndex(IdType* output_miss_src_index,
                          IdType* output_miss_dst_index, size_t* num_output_miss,
@@ -65,13 +65,13 @@ class GPUCacheManager {
                        const IdType* miss_dst_index, const size_t num_miss,
                        StreamHandle stream);
   void GPUExtractMissData(void *output, const IdType *miss_src_index,
-                          const IdType *miss_dst_index, const size_t num_miss, 
+                          const IdType *miss_dst_index, const size_t num_miss,
                           StreamHandle stream);
   void CombineCacheData(void* output, const IdType* cache_src_index,
                         const IdType* cache_dst_index, const size_t num_cache,
                         StreamHandle stream);
 
-  void CountLocalCache(size_t task_key, const IdType *cache_src_index, 
+  void CountLocalCache(size_t task_key, const IdType *cache_src_index,
                        const size_t num_cache, const size_t num_nodes,
                        StreamHandle stream);
 
@@ -92,7 +92,7 @@ class GPUCacheManager {
 
   IdType* _sampler_gpu_hashtable;
 
-  DistArray *_part_cache = nullptr;
+  DistGraph *_dist_graph = nullptr;
 };
 
 class GPUDynamicCacheManager {
@@ -105,7 +105,7 @@ class GPUDynamicCacheManager {
                   // ,double cache_percentage
                   );
   ~GPUDynamicCacheManager();
-  
+
   void ReplaceCache(TensorPtr nodes, TensorPtr features);
   void ReplaceCacheGPU(TensorPtr nodes, TensorPtr features, StreamHandle stream);
 

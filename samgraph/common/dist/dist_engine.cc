@@ -129,9 +129,9 @@ void DistEngine::Init() {
       }
       default: ;
     }
-    if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
-      cuda::DeviceP2PComm::Init(RunConfig::num_worker);
-    }
+    // if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
+    //   cuda::DeviceP2PComm::Init(RunConfig::num_worker);
+    // }
   }
   double init_load_ds_mmap_time = t_l2_init_load_ds_mmap.Passed();
 
@@ -657,13 +657,14 @@ void DistEngine::TrainInit(int worker_id, Context ctx, DistType dist_type) {
       }
     } else {
       if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
-        cuda::DeviceP2PComm::Create(worker_id, _trainer_ctx.device_id);
+        // cuda::DeviceP2PComm::Create(worker_id, _trainer_ctx.device_id);
         _gpu_cache_manager = new cuda::GPUCacheManager(worker_id,
             _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),
             _dataset->feat->Type(), _dataset->feat->Shape()[1],
             static_cast<const IdType *>(_dataset->ranking_nodes->Data()),
             _dataset->num_node, RunConfig::cache_percentage,
-            cuda::DeviceP2PComm::Get());
+            // cuda::DeviceP2PComm::Get());
+            cuda::DistGraph::Get().get());
       } else {
         _gpu_cache_manager = new cuda::GPUCacheManager(
             _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),

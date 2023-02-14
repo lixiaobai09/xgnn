@@ -34,6 +34,7 @@ namespace cuda {
 
 constexpr IdType kMaxDevice = 32;
 
+/*
 class DeviceP2PComm {
  public:
   static void Init(int num_worker);
@@ -107,6 +108,7 @@ class DistArray {
   void **_devptrs_h;
   DeviceP2PComm *_comm;
 };
+*/
 
 
 class DeviceDistGraph {
@@ -177,25 +179,41 @@ class DeviceNormalGraph {
   IdType _num_node;
 };
 
+class DeviceDistFeature {
+ public:
+  DeviceDistFeature() = default;
+  DeviceDistFeature(void **part_feature_data, IdType num_part,
+      IdType num_cache_node, IdType dim)
+    : _part_feature_data(part_feature_data),
+      _num_partition(num_part),
+      _num_cache_node(num_cache_node),
+      _dim(dim) {};
+
+  template<typename T>
+  inline __device__ const T& Get(IdType node_id, IdType col) {
+    assert(node_id < _num_cache_node);
+    assert(col < _dim);
+    IdType part_id, real_id;
+    _GetRealPartId(node_id, &part_id, &real_id);
+    auto part_ptr = static_cast<T*>(_part_feature_data[part_id]);
+    return part_ptr[real_id * _dim + col];
+  }
+
+ private:
+  inline __device__ void _GetRealPartId(IdType node_id,
+    IdType *part_id, IdType *real_id) {
+    *part_id = (node_id % _num_partition);
+    *real_id = (node_id / _num_partition);
+  }
+  void **_part_feature_data;
+  IdType _num_partition;
+  IdType _num_cache_node;
+  IdType _dim;
+};
+
 
 class DistGraph {
  public:
-  void GraphLoad(Dataset *dataset, int sampler_id, Context sampler_ctx,
-      IdType num_cache_node);
-  void FeatureLoad(int trainer_id, Context trainer_ctx,
-      const IdType *cache_rank_node, const IdType num_cache_node,
-      DataType dtype, size_t dim,
-      const void* cpu_src_feature_data,
-      StreamHandle stream);
-  DeviceDistGraph DeviceGraphHandle() const;
-
-  static void Create(std::vector<Context> ctxes);
-  static void Release(DistGraph *dist_graph);
-  static std::shared_ptr<DistGraph> Get() {
-    CHECK(_inst != nullptr) << "The static instance is not be initialized";
-    return _inst;
-  }
-
   struct GroupConfig{
     // for which GPU context
     Context ctx;
@@ -209,6 +227,26 @@ class DistGraph {
       : ctx(ctx_), part_ids(part_ids_), ctx_group(group_) {};
     friend std::ostream& operator<<(std::ostream &os, const GroupConfig &config);
   };
+
+  GroupConfig GetGroupConfig(int device_id) const {
+    return _group_configs[device_id];
+  }
+  void GraphLoad(Dataset *dataset, int sampler_id, Context sampler_ctx,
+      IdType num_cache_node);
+  void FeatureLoad(int trainer_id, Context trainer_ctx,
+      const IdType *cache_rank_node, const IdType num_cache_node,
+      DataType dtype, size_t dim,
+      const void* cpu_src_feature_data,
+      StreamHandle stream = nullptr);
+  DeviceDistGraph DeviceGraphHandle() const;
+  DeviceDistFeature DeviceFeatureHandle() const;
+
+  static void Create(std::vector<Context> ctxes);
+  static void Release(DistGraph *dist_graph);
+  static std::shared_ptr<DistGraph> Get() {
+    CHECK(_inst != nullptr) << "The static instance is not be initialized";
+    return _inst;
+  }
 
  private:
   DistGraph() = delete;
@@ -236,6 +274,7 @@ class DistGraph {
   IdType _num_node;
   IdType _trainer_id;
   IdType _num_feature_cache_node;
+  IdType _feat_dim;
 
   IdType **_d_part_indptr;
   IdType **_d_part_indices;
