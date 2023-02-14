@@ -150,7 +150,7 @@ void DoGPUSample(TaskPtr task) {
         {
           if (RunConfig::use_dist_graph) {
             cuda::GPUSampleKHop0<cuda::DeviceDistGraph>(
-              cuda::DistGraph::Get()->DeviceHandle(),
+              cuda::DistGraph::Get()->DeviceGraphHandle(),
               input, num_input, fanout, out_src,
               out_dst, num_out, sampler_ctx, sample_stream,
               random_states, task->key);
@@ -187,7 +187,7 @@ void DoGPUSample(TaskPtr task) {
           CHECK_EQ(fanout, RunConfig::num_neighbor);
           if (RunConfig::use_dist_graph) {
             cuda::GPUSampleRandomWalk<cuda::DeviceDistGraph>(
-              cuda::DistGraph::Get()->DeviceHandle(),
+              cuda::DistGraph::Get()->DeviceGraphHandle(),
               input, num_input, RunConfig::random_walk_length,
               RunConfig::random_walk_restart_prob, RunConfig::num_random_walk,
               RunConfig::num_neighbor, out_src, out_dst, out_data, num_out,
@@ -236,7 +236,7 @@ void DoGPUSample(TaskPtr task) {
           if (RunConfig::use_dist_graph) {
             LOG(DEBUG) << "use DeviceDistGraph to sample";
             cuda::GPUSampleKHop3<cuda::DeviceDistGraph>(
-                cuda::DistGraph::Get()->DeviceHandle(),
+                cuda::DistGraph::Get()->DeviceGraphHandle(),
                 input, num_input, fanout, out_src,
                 out_dst, num_out, sampler_ctx, sample_stream,
                 random_states, task->key);

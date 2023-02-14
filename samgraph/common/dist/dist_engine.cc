@@ -230,7 +230,7 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
     while(indptr_data[num_cache_node] < num_cache_edge && num_cache_node < num_node) {
       ++num_cache_node;
     }
-    cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx,
+    cuda::DistGraph::Get()->GraphLoad(_dataset, worker_id, sampler_ctx,
         num_cache_node);
     LOG(DEBUG) << "DistGraph dataset loading time: " << tt.Passed() << std::endl;
   }

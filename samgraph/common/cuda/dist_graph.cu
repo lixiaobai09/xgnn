@@ -314,15 +314,13 @@ void DistGraph::_DataIpcShare(std::vector<TensorPtr> &part_data,
   _Barrier();
 }
 
-// TODO: rename
-void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
+void DistGraph::GraphLoad(Dataset *dataset, int sampler_id,
     Context sampler_ctx, IdType num_cache_node) {
 
   CHECK(sampler_ctx == _group_configs[sampler_id].ctx);
   CHECK(num_cache_node <= dataset->num_node);
   _sampler_id = sampler_id;
-  // TODO: rename
-  _num_cache_node = num_cache_node;
+  _num_graph_cache_node = num_cache_node;
   _num_node = dataset->num_node;
 
   auto part_ids = _group_configs[sampler_id].part_ids;
@@ -337,7 +335,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   if (RunConfig::dist_graph_part_cpu < 1) {
     for (IdType part_id : part_ids) {
       _DatasetPartition(dataset, sampler_ctx, part_id, num_part,
-          _num_cache_node);
+          _num_graph_cache_node);
     }
   } else {
     auto ctx_group = _group_configs[sampler_id].ctx_group;
@@ -351,8 +349,8 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
   if (RunConfig::dist_graph_part_cpu < 1) {
     std::vector<std::vector<size_t>> shape_vec(num_part);
     for (size_t i = 0; i < num_part; ++i) {
-      size_t num_part_node = (_num_cache_node / num_part +
-          (i < _num_cache_node % num_part? 1 : 0) + 1);
+      size_t num_part_node = (_num_graph_cache_node / num_part +
+          (i < _num_graph_cache_node % num_part? 1 : 0) + 1);
       shape_vec[i] = std::vector<size_t>({num_part_node});
     }
     _DataIpcShare(_part_indptr, shape_vec, part_ids,
@@ -362,7 +360,7 @@ void DistGraph::DatasetLoad(Dataset *dataset, int sampler_id,
     shape_vec.resize(num_part, {0});
     std::vector<size_t> part_size_vec(num_part, 0);
     auto indptr_data = dataset->indptr->CPtr<IdType>();
-    for (IdType i = 0; i < _num_cache_node; ++i) {
+    for (IdType i = 0; i < _num_graph_cache_node; ++i) {
       IdType num_edge = indptr_data[i + 1] - indptr_data[i];
       IdType tmp_part_id = (i % num_part);
       part_size_vec[tmp_part_id] += num_edge;
@@ -465,11 +463,11 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
         cudaMemcpyDefault));
 }
 
-DeviceDistGraph DistGraph::DeviceHandle() const {
+DeviceDistGraph DistGraph::DeviceGraphHandle() const {
   return DeviceDistGraph(
       _d_part_indptr, _d_part_indices,
       _group_configs[_sampler_id].ctx_group.size(),
-      _num_cache_node,
+      _num_graph_cache_node,
       _num_node);
 }
 
