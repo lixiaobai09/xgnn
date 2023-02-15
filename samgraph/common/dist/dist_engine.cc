@@ -227,7 +227,7 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
     // calculate the num_cache_node
     IdType num_cache_node = 0;
     auto indptr_data = _dataset->indptr->CPtr<IdType>();
-    while(indptr_data[num_cache_node] < num_cache_edge && num_cache_node < num_node) {
+    while(num_cache_node < num_node && indptr_data[num_cache_node] < num_cache_edge) {
       ++num_cache_node;
     }
     cuda::DistGraph::Get()->GraphLoad(_dataset, worker_id, sampler_ctx,
