@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -129,29 +129,32 @@ GPUCacheManager::GPUCacheManager(Context sampler_ctx, Context trainer_ctx,
             << " secs )";
 }
 
-GPUCacheManager::GPUCacheManager(IdType worker_id, 
-                                 Context sampler_ctx, Context trainer_ctx, 
+GPUCacheManager::GPUCacheManager(IdType worker_id,
+                                 Context sampler_ctx, Context trainer_ctx,
                                  const void* cpu_src_data, DataType dtype, size_t dim,
                                  const IdType* nodes, size_t num_nodes,
                                  double cache_percentage,
-                                 DeviceP2PComm *comm)
+                                 DistGraph *dist_graph)
   : _sampler_ctx(sampler_ctx),
     _trainer_ctx(trainer_ctx),
     _num_nodes(num_nodes),
-    _num_cached_nodes(std::min(num_nodes, static_cast<size_t>(comm->CommSize() * cache_percentage * num_nodes))),
-    _cache_percentage(std::min(1.0, comm->CommSize() * cache_percentage)),
+    _num_cached_nodes(num_nodes * cache_percentage),
+    _cache_percentage(cache_percentage),
     _dtype(dtype),
     _dim(dim),
-    _cpu_src_data(cpu_src_data)
+    _cpu_src_data(cpu_src_data),
+    _dist_graph(dist_graph),
+    _trainer_cache_data(nullptr)
 {
   Timer t;
-  
-  auto cpu_device = Device::Get(CPU());
-  auto sampler_device = Device::Get(_sampler_ctx);
-  auto trainer_device = Device::Get(_trainer_ctx);
 
-  IdType extract_num_nodes = _num_cached_nodes / comm->CommSize() + (comm->Rank() < _num_cached_nodes % comm->CommSize());
-  _cache_nbytes = GetTensorBytes(_dtype, {extract_num_nodes, _dim});
+  if (RunConfig::run_arch == kArch6) {
+    CHECK(static_cast<int>(worker_id) == sampler_ctx.device_id);
+    CHECK(static_cast<int>(worker_id) == trainer_ctx.device_id);
+  }
+
+  auto cpu_device = Device::Get(CPU());
+  auto sampler_device = Device::Get(sampler_ctx);
 
   IdType *part_cache_rank_node = cpu_device->AllocArray<IdType>(CPU(), sizeof(IdType) * _num_nodes);
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
@@ -161,8 +164,8 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
   // each worker see same ranking nodes
   std::mt19937 eg(_num_cached_nodes);
   std::shuffle(part_cache_rank_node, part_cache_rank_node + _num_cached_nodes, eg);
-  // LOG(INFO) << "use partition cache, collective cache percent " << _cache_percentage * 100 << "%"
-  //           << " num cached nodes " << _num_cached_nodes;
+  LOG(DEBUG) << "use partition cache, collective cache percent " << _cache_percentage * 100 << "%"
+            << " num cached nodes " << _num_cached_nodes;
 
   IdType *tmp_cpu_hashtable = static_cast<IdType *>(
       cpu_device->AllocDataSpace(CPU(), sizeof(IdType) * _num_nodes));
@@ -170,9 +173,7 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
       static_cast<IdType *>(sampler_device->AllocDataSpace(
           _sampler_ctx, sizeof(IdType) * _num_nodes));
 
-  void *tmp_cpu_data = cpu_device->AllocDataSpace(CPU(), _cache_nbytes);
-  _trainer_cache_data =
-      trainer_device->AllocDataSpace(_trainer_ctx, _cache_nbytes);
+  _cache_nbytes = GetTensorBytes(_dtype, {_num_cached_nodes, _dim});
   Profiler::Get().LogInit(kLogInitL1FeatMemory, _cache_nbytes);
 
   // 1. Initialize the cpu hashtable
@@ -186,51 +187,25 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
     tmp_cpu_hashtable[part_cache_rank_node[i]] = i;
   }
 
-  // prepare extract node
-  IdType* extract_nodes = Device::Get(CPU())->AllocArray<IdType>(CPU(), sizeof(IdType) * extract_num_nodes);
-#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
-  for (size_t  i = 0; i < extract_num_nodes; i++) {
-    extract_nodes[i] = part_cache_rank_node[comm->Rank() + i * comm->CommSize()];
-  }
-  // 3. Populate the cache in cpu memory
-  if (RunConfig::option_empty_feat != 0) {
-    cpu::CPUMockExtract(tmp_cpu_data, _cpu_src_data, extract_nodes, extract_num_nodes,
-                        _dim, _dtype);
-  } else {
-    cpu::CPUExtract(tmp_cpu_data, _cpu_src_data, extract_nodes, extract_num_nodes, _dim,
-                    _dtype);
-  }
+  // 3. Load the feature cache
+  _dist_graph->FeatureLoad(worker_id, trainer_ctx,
+      part_cache_rank_node, _num_cached_nodes,
+      _dtype, _dim,
+      cpu_src_data);
 
-  // 4. Copy the cache from the cpu memory to gpu memory
+  // 4. Copy the cache hashtable from the cpu memory to gpu memory
   sampler_device->CopyDataFromTo(
       tmp_cpu_hashtable, 0, _sampler_gpu_hashtable, 0,
       sizeof(IdType) * _num_nodes, CPU(), _sampler_ctx);
-  trainer_device->CopyDataFromTo(tmp_cpu_data, 0, _trainer_cache_data, 0,
-                                     _cache_nbytes, CPU(), _trainer_ctx);
 
-  // 5. Load each trainer cache to DistArray
-  _part_cache = new DistArray(_trainer_cache_data, comm);
-  {
-    std::stringstream ss;
-    for (IdType i = 0; i < comm->CommSize(); i++)
-      ss << comm->Peer(i) << " ";
-    LOG(INFO) << "worker " << worker_id << " partition cache clique [ " << ss.str()
-              << "] | rank: " << _part_cache->Rank()
-              << " comm_size: " << _part_cache->CommSize();
-  }
-
-  // 6. Free the cpu tmp cache data
-  cpu_device->FreeDataSpace(CPU(), tmp_cpu_data);
+  // 5. Free the cpu tmp cache data
   cpu_device->FreeDataSpace(CPU(), tmp_cpu_hashtable);
   cpu_device->FreeWorkspace(CPU(), part_cache_rank_node);
-  cpu_device->FreeWorkspace(CPU(), extract_nodes);
 
-  LOG(INFO) << "Partition GPU cache (policy: " << RunConfig::cache_policy << ") " 
+  LOG(INFO) << "Partition GPU cache (policy: " << RunConfig::cache_policy << ") "
             << "global cache: "
             << _num_cached_nodes << " / " << _num_nodes << " nodes ( "
             << ToPercentage(_cache_percentage) << " ) "
-            << "local cache: "
-            << extract_num_nodes << " nodes "
             << ToReadableSize(_cache_nbytes) << " | "
             << t.Passed() << " secs";
 }
@@ -239,12 +214,11 @@ GPUCacheManager::~GPUCacheManager() {
   auto sampler_device = Device::Get(_sampler_ctx);
   auto trainer_device = Device::Get(_trainer_ctx);
 
-  sampler_device->FreeDataSpace(_sampler_ctx, _sampler_gpu_hashtable);
-  trainer_device->FreeDataSpace(_trainer_ctx, _trainer_cache_data);
-
-  if (_part_cache != nullptr) {
-    delete _part_cache;
-    _part_cache = nullptr;
+  if (_sampler_gpu_hashtable != nullptr) {
+    sampler_device->FreeDataSpace(_sampler_ctx, _sampler_gpu_hashtable);
+  }
+  if (_trainer_cache_data != nullptr) {
+    trainer_device->FreeDataSpace(_trainer_ctx, _trainer_cache_data);
   }
 }
 
@@ -283,9 +257,9 @@ void GPUCacheManager::ExtractMissData(void *output_miss,
 }
 
 GPUDynamicCacheManager::GPUDynamicCacheManager(Context sampler_ctx, Context trainer_ctx,
-                                 const void *cpu_src_data, 
+                                 const void *cpu_src_data,
                                  DataType dtype,
-                                 size_t dim, 
+                                 size_t dim,
                                 //  const IdType *nodes,
                                  size_t num_nodes
                                 //  , double cache_percentage
@@ -315,8 +289,8 @@ GPUDynamicCacheManager::GPUDynamicCacheManager(Context sampler_ctx, Context trai
       sizeof(IdType) * _num_nodes, CPU(), _sampler_ctx);
 }
 /**
- * @brief 
- * 
+ * @brief
+ *
  * @param nodes must be in cpu
  * @param features must be in train gpu
  */

@@ -129,9 +129,9 @@ void DistEngine::Init() {
       }
       default: ;
     }
-    if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
-      cuda::DeviceP2PComm::Init(RunConfig::num_worker);
-    }
+    // if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
+    //   cuda::DeviceP2PComm::Init(RunConfig::num_worker);
+    // }
   }
   double init_load_ds_mmap_time = t_l2_init_load_ds_mmap.Passed();
 
@@ -215,11 +215,30 @@ void DistEngine::SampleDataCopy(int worker_id, Context sampler_ctx,
       _dataset->prob_prefix_table = Tensor::CopyTo(_dataset->prob_prefix_table, sampler_ctx, stream, Constant::kAllocNoScale);
     }
   } else if (RunConfig::use_dist_graph == true) {
-    cuda::DistGraph::Get()->DatasetLoad(_dataset, worker_id, sampler_ctx);
+    Timer tt;
+    CUDA_CALL(cudaHostRegister(_dataset->indptr->MutableData(),
+          _dataset->indptr->NumBytes(), cudaHostRegisterReadOnly));
+    CUDA_CALL(cudaHostRegister(_dataset->indices->MutableData(),
+          _dataset->indices->NumBytes(), cudaHostRegisterReadOnly));
+    IdType num_edge = _dataset->num_edge;
+    IdType num_node = _dataset->num_node;
+    IdType num_cache_edge = static_cast<IdType>(num_edge * RunConfig::dist_graph_percentage);
+    CHECK(num_cache_edge <= num_edge);
+    // calculate the num_cache_node
+    IdType num_cache_node = 0;
+    auto indptr_data = _dataset->indptr->CPtr<IdType>();
+    while(num_cache_node < num_node && indptr_data[num_cache_node] < num_cache_edge) {
+      ++num_cache_node;
+    }
+    cuda::DistGraph::Get()->GraphLoad(_dataset, worker_id, sampler_ctx,
+        num_cache_node);
+    LOG(DEBUG) << "DistGraph dataset loading time: " << tt.Passed() << std::endl;
   }
   if (RunConfig::gpu_extract) {
+    Timer tt;
     CUDA_CALL(cudaHostRegister(_dataset->feat->MutableData(), _dataset->feat->NumBytes(), cudaHostRegisterReadOnly));
     CUDA_CALL(cudaHostRegister(_dataset->label->MutableData(), _dataset->label->NumBytes(), cudaHostRegisterReadOnly));
+    LOG(DEBUG) << "register time cost: " << tt.Passed() << std::endl;
   }
   LOG(DEBUG) << "SampleDataCopy finished!";
 }
@@ -638,13 +657,14 @@ void DistEngine::TrainInit(int worker_id, Context ctx, DistType dist_type) {
       }
     } else {
       if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
-        cuda::DeviceP2PComm::Create(worker_id, _trainer_ctx.device_id);
+        // cuda::DeviceP2PComm::Create(worker_id, _trainer_ctx.device_id);
         _gpu_cache_manager = new cuda::GPUCacheManager(worker_id,
             _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),
             _dataset->feat->Type(), _dataset->feat->Shape()[1],
             static_cast<const IdType *>(_dataset->ranking_nodes->Data()),
             _dataset->num_node, RunConfig::cache_percentage,
-            cuda::DeviceP2PComm::Get());
+            // cuda::DeviceP2PComm::Get());
+            cuda::DistGraph::Get().get());
       } else {
         _gpu_cache_manager = new cuda::GPUCacheManager(
             _sampler_ctx, _trainer_ctx, _dataset->feat->Data(),

@@ -88,6 +88,24 @@ void Engine::Create() {
   }
 }
 
+TensorPtr ConverToAnonMmap(TensorPtr tensor) {
+  size_t nbytes = tensor->NumBytes();
+  int device_id = 0;
+  if (RunConfig::option_huge_page) {
+    size_t hugepage_size = (1l << 21);
+    nbytes = (nbytes + hugepage_size - 1) / hugepage_size * hugepage_size;
+    device_id = MMAP_HUGEPAGE;
+  }
+  auto data = mmap(NULL, nbytes,
+      PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
+  std::memcpy(data, tensor->Data(), tensor->NumBytes());
+  int ret_val = mprotect(data, nbytes, PROT_READ);
+  CHECK(ret_val == 0);
+  auto ret = Tensor::FromBlob(data, tensor->Type(), tensor->Shape(),
+      MMAP(device_id), tensor->Name());
+  return ret;
+}
+
 void Engine::LoadGraphDataset() {
   Timer t;
   // Load graph dataset from disk by mmap and copy the graph
@@ -157,6 +175,7 @@ void Engine::LoadGraphDataset() {
         Tensor::FromMmap(_dataset_path + Constant::kIndptrFile, DataType::kI32,
                         {meta[Constant::kMetaNumNode] + 1},
                         ctx_map[Constant::kIndptrFile], "dataset.indptr");
+    _dataset->indptr = ConverToAnonMmap(_dataset->indptr);
   } else {
     _dataset->indptr =
         Tensor::UMFromMmap(_dataset_path + Constant::kIndptrFile, DataType::kI32,
@@ -168,6 +187,7 @@ void Engine::LoadGraphDataset() {
         Tensor::FromMmap(_dataset_path + Constant::kIndicesFile, DataType::kI32,
                         {meta[Constant::kMetaNumEdge]},
                         ctx_map[Constant::kIndicesFile], "dataset.indices");
+    _dataset->indices = ConverToAnonMmap(_dataset->indices);
   } else {
     _dataset->indices =
         Tensor::UMFromMmap(_dataset_path + Constant::kIndicesFile, DataType::kI32,
@@ -196,14 +216,18 @@ void Engine::LoadGraphDataset() {
     if (RunConfig::gpu_extract) {
       Timer tt;
       size_t mmap_nbytes = GetTensorBytes(feat_data_type, empty_feat_shape);
+      int mmap_device_id = 0;
       if (RunConfig::option_huge_page) {
         size_t hugepage_size = (1l << 21);
         mmap_nbytes = (mmap_nbytes + hugepage_size - 1) / hugepage_size * hugepage_size;
+        mmap_device_id = MMAP_HUGEPAGE;
       }
       auto feat = mmap(NULL, mmap_nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       CHECK_NE(feat, MAP_FAILED);
+      int ret_val = mprotect(feat, mmap_nbytes, PROT_READ);
+      CHECK(ret_val == 0);
       _dataset->feat = Tensor::FromBlob(feat, feat_data_type,
-          empty_feat_shape, MMAP(), "dataset.feat");
+          empty_feat_shape, MMAP(mmap_device_id), "dataset.feat");
       gpu_extract_time += tt.Passed();
     } else {
       _dataset->feat = Tensor::EmptyNoScale(feat_data_type, empty_feat_shape,
@@ -233,6 +257,8 @@ void Engine::LoadGraphDataset() {
       if (RunConfig::option_huge_page) {
         mmap_device_id = MMAP_HUGEPAGE;
       }
+      int ret_val = mprotect(feat, mmap_nbytes, PROT_READ);
+      CHECK(ret_val == 0);
       _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(mmap_device_id), _dataset->feat->Name());
       gpu_extract_time += tt.Passed();
     }
