@@ -542,7 +542,16 @@ void DistGraph::Release(DistGraph *dist_graph) {
     CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indptr));
     CUDA_CALL(cudaFree((void*)dist_graph->_d_part_indices));
   }
-  // XXX: release the feature data memory
+  if (dist_graph->_trainer_id != Constant::kEmptyKey) {
+    for (int i = 0; i < dist_graph->_part_feature.size(); i++) {
+      if (i != dist_graph->_trainer_id) {
+        CUDA_CALL(cudaIpcCloseMemHandle(
+              dist_graph->_part_feature[i]->MutableData()));
+      }
+    }
+    LOG(INFO) << "Release DistFeature" << " " << dist_graph->_trainer_id;
+    CUDA_CALL(cudaFree((void*)dist_graph->_d_part_feature));
+  }
   pthread_barrier_destroy(&dist_graph->_shared_data->barrier);
   munmap(dist_graph->_shared_data, sizeof(SharedData));
 }
