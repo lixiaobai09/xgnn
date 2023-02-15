@@ -223,7 +223,7 @@ void Engine::LoadGraphDataset() {
       auto feat = mmap(NULL, mmap_nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       CHECK_NE(feat, MAP_FAILED);
       _dataset->feat = Tensor::FromBlob(feat, feat_data_type,
-          empty_feat_shape, MMAP(), "dataset.feat");
+          empty_feat_shape, MMAP(mmap_device_id), "dataset.feat");
       gpu_extract_time += tt.Passed();
     } else {
       _dataset->feat = Tensor::EmptyNoScale(feat_data_type, empty_feat_shape,
