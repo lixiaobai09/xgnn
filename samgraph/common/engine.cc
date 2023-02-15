@@ -99,6 +99,8 @@ TensorPtr ConverToAnonMmap(TensorPtr tensor) {
   auto data = mmap(NULL, nbytes,
       PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
   std::memcpy(data, tensor->Data(), tensor->NumBytes());
+  int ret_val = mprotect(data, nbytes, PROT_READ);
+  CHECK(ret_val == 0);
   auto ret = Tensor::FromBlob(data, tensor->Type(), tensor->Shape(),
       MMAP(device_id), tensor->Name());
   return ret;
@@ -222,6 +224,8 @@ void Engine::LoadGraphDataset() {
       }
       auto feat = mmap(NULL, mmap_nbytes, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_LOCKED, -1, 0);
       CHECK_NE(feat, MAP_FAILED);
+      int ret_val = mprotect(feat, mmap_nbytes, PROT_READ);
+      CHECK(ret_val == 0);
       _dataset->feat = Tensor::FromBlob(feat, feat_data_type,
           empty_feat_shape, MMAP(mmap_device_id), "dataset.feat");
       gpu_extract_time += tt.Passed();
@@ -253,6 +257,8 @@ void Engine::LoadGraphDataset() {
       if (RunConfig::option_huge_page) {
         mmap_device_id = MMAP_HUGEPAGE;
       }
+      int ret_val = mprotect(feat, mmap_nbytes, PROT_READ);
+      CHECK(ret_val == 0);
       _dataset->feat = Tensor::FromBlob(feat, _dataset->feat->Type(), _dataset->feat->Shape(), MMAP(mmap_device_id), _dataset->feat->Name());
       gpu_extract_time += tt.Passed();
     }
