@@ -86,7 +86,12 @@ def find_cache_pct_impl(cmd:Cmd):
             try:
                 err = re.search(r'\[.* E .*\].*', errout, flags=re.MULTILINE).group(0)
             except:
-                err = errout
+                err = None
+            if err is None:
+                try:
+                    err = re.search(r'.*out of memory.*', errout, flags=re.MULTILINE).group(0)
+                except:
+                    err = errout
         return proc, gpu_memory, err
 
     logging.info(f'\x1b[32;1m[TRY CMD]\x1b[0m: {cmd.get(cmd.ori_cache_pct)}')
@@ -103,7 +108,7 @@ def find_cache_pct_impl(cmd:Cmd):
         try_cmd = cmd.get(cache_pct)
         proc, gpu_memory, err = _try_cache_pct(try_cmd)
         msg = f'error: \n{err}' if err is not None else f'gpu memory usage {gpu_memory}'
-        logging.info(f'\x1b[35;1m[TRY RESULT]\x1b[0m: cache_pct {cache_pct_int / 100} in [{left}, {right}), {msg}')
+        logging.info(f'\x1b[35;1m[TRY RESULT]\x1b[0m: cache_pct {cache_pct_int}% in [{left}, {right}), {msg}')
         if not err:
             left = cache_pct_int
             try:
@@ -123,6 +128,7 @@ def find_cache_pct_impl(cmd:Cmd):
     # check result
     cache_pct = left
     chk_cnter = 0
+    fail_cnter = 0
     while True:
         proc, gpu_memory, err = _try_cache_pct(cmd.get(cache_pct / 100))
         logging.info(f'\x1b[38;5;208;1m[CHECK RESULT {chk_cnter}]\x1b[0m: cache_pct {cache_pct} gpu_memory {gpu_memory} error {err}')
@@ -130,8 +136,11 @@ def find_cache_pct_impl(cmd:Cmd):
             return cache_pct / 100, gpu_memory
         elif err and cache_pct == 0:
             return cache_pct / 100, gpu_memory
+        elif not err and (fail_cnter > 0):
+            return cache_pct / 100, gpu_memory
         if err:
             cache_pct -= 1
+            fail_cnter += 1
         else:
             cache_pct += 1
         chk_cnter += 1
