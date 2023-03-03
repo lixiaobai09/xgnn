@@ -187,10 +187,13 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
     RunConfig::presample_epoch = 0;
   }
 
-  if (configs.count("use_dist_graph") > 0
-      && configs["use_dist_graph"] == "True") {
-    RC::use_dist_graph = true;
-    LOG(DEBUG) << "use_dist_graph=True";
+  if (configs.count("use_dist_graph") > 0) {
+    RC::dist_graph_percentage = std::stod(configs["use_dist_graph"]);
+    if (RC::dist_graph_percentage > 0.0) {
+      RC::use_dist_graph = true;
+      LOG(DEBUG) << "use_dist_graph with dist_graph_percentage = "
+        << RC::dist_graph_percentage;
+    }
 
     if (configs.count("dist_graph_part_cpu") > 0) {
       RC::dist_graph_part_cpu = std::stoi(configs["dist_graph_part_cpu"]);
@@ -488,7 +491,8 @@ void samgraph_data_init() {
   Engine::Create();
   Engine::Get()->Init();
 
-  if (RunConfig::run_arch == kArch6 && RunConfig::use_dist_graph) {
+  if (RunConfig::run_arch == kArch6
+      && (RunConfig::use_dist_graph || RunConfig::part_cache)) {
     std::vector<Context> ctxes(RunConfig::num_worker);
     for (int i = 0; i < RunConfig::num_worker; ++i) {
       ctxes[i] = Context{kGPU, i};

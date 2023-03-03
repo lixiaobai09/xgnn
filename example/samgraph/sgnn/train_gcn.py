@@ -59,8 +59,8 @@ def parse_args(default_run_config):
                            default=default_run_config['dropout'])
     argparser.add_argument('--weight-decay', type=float,
                            default=default_run_config['weight_decay'])
-    argparser.add_argument('--use-dist-graph', action="store_true",
-                           default=False)
+    argparser.add_argument('--use-dist-graph', type=float,
+                           default=0.0)
     argparser.add_argument('--dist-graph-part-cpu', type=int, default=0)
     argparser.add_argument('--unified-memory', action='store_true',
                            default=False)
@@ -118,8 +118,13 @@ def run(worker_id, run_config):
 
     print('[Worker {:d}/{:d}] Started with PID {:d}({:s})'.format(
         worker_id, num_worker, os.getpid(), torch.cuda.get_device_name(ctx)))
+    init_t1 = time.time()
     sam.sample_init(worker_id, ctx)
+    init_t2 = time.time()
     sam.train_init(worker_id, ctx)
+    init_t3 = time.time()
+    print("sample init time: ", (init_t2 - init_t1))
+    print("train init time : ", (init_t3 - init_t2))
 
     if num_worker > 1:
         dist_init_method = 'tcp://{master_ip}:{master_port}'.format(
@@ -277,10 +282,15 @@ def run(worker_id, run_config):
         (free, total) = torch.cuda.mem_get_info()
         peek_memory = max(peek_memory, total - free)
         if worker_id == 0:
-            gpu_used_memory = (total - free) / 1024 / 1024 / 1024
-            print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f}'.format(
+            (free, total) = torch.cuda.mem_get_info()
+            used = (total - free) / 1024 / 1024 / 1024
+            torch_mem_reserved = torch.cuda.memory_reserved() / 1024 / 1024 / 1024
+            print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f} | torch memory used {:.2f}'.format(
                 epoch, epoch_total_times_python[-1], epoch_sample_total_times[-1], epoch_copy_times[-1], epoch_train_total_times_profiler[-1],
-                gpu_used_memory))
+                used, torch_mem_reserved))
+            # print("stats:\n", torch.cuda.memory_stats())
+            # print("summary:\n", torch.cuda.memory_summary())
+            # print("snapshot:\n", torch.cuda.memory_snapshot())
 
     # sync the train workers
     if num_worker > 1:
@@ -345,7 +355,9 @@ def run(worker_id, run_config):
 
 if __name__ == '__main__':
     run_config = get_run_config()
+    init_t0 = time.time()
     run_init(run_config)
+    print("init run time: ", (time.time() - init_t0))
 
     num_worker = run_config['num_worker']
 

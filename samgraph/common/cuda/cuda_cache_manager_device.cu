@@ -165,8 +165,9 @@ __global__ void get_cache_index(const IdType *hashtable, const IdType *nodes,
 
 template <size_t BLOCK_SIZE, size_t TILE_SIZE>
 __global__ void count_local_cache(const IdType *cache_src_index, const IdType num_cache, 
-                                  IdType *prefix_count, 
-                                  const size_t rank, const size_t comm_size) {
+                                  IdType *prefix_count,
+                                  const long local_part_map,
+                                  const size_t num_part) {
   size_t start = blockIdx.x * TILE_SIZE;
   size_t end = start + TILE_SIZE;
 
@@ -177,7 +178,8 @@ __global__ void count_local_cache(const IdType *cache_src_index, const IdType nu
 #pragma unroll
   for (size_t i = start + threadIdx.x; i < end; i += BLOCK_SIZE) {
     if (i < num_cache) {
-      if (cache_src_index[i] % comm_size == rank) {
+      int part_id = (cache_src_index[i] % num_part);
+      if (((1 << part_id) & local_part_map) != 0) {
         local++;
       }
     }
@@ -264,7 +266,8 @@ __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
 template <typename T>
 __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
                                    const IdType *cache_dst_index,
-                                   const size_t num_cache, DistArray::DeviceHandle cache,
+                                   const size_t num_cache,
+                                   DeviceDistFeature cache,
                                    size_t dim) {
   T *output_data = reinterpret_cast<T *>(output);
   
@@ -276,9 +279,7 @@ __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
     const size_t src_idx = cache_src_index[i];
     const size_t dst_idx = cache_dst_index[i];
     while (col < dim) {
-      IdType rank = src_idx % cache.comm_size;
-      IdType index = (src_idx / cache.comm_size) * dim + col;
-      output_data[dst_idx * dim + col] = cache.Get<T>(rank, index);
+      output_data[dst_idx * dim + col] = cache.Get<T>(src_idx, col);
       col += blockDim.x;
     }
     i += stride;
@@ -431,10 +432,22 @@ void GPUCacheManager::CountLocalCache(size_t task_key,
 
   IdType *local_cache_counts = sampler_device->AllocArray<IdType>(_sampler_ctx, grid.x + 1);
   IdType *local_cache_counts_prefix_sum = sampler_device->AllocArray<IdType>(_sampler_ctx, grid.x + 1);
+
+  // check long type can be used for device map(local_part_map)
+  static_assert(sizeof(long) * 8 >= kMaxDevice);
+
+  // get the local_part_map and num_part
+  DistGraph::GroupConfig group_cfg = _dist_graph->GetGroupConfig(
+      _trainer_ctx.device_id);
+  long local_part_map = 0;
+  size_t num_part = group_cfg.ctx_group.size();
+  for (IdType part_id : group_cfg.part_ids) {
+    local_part_map = (local_part_map | (1l << part_id));
+  }
   count_local_cache<Constant::kCudaBlockSize, Constant::kCudaTileSize>
       <<<grid, block, 0, cu_stream>>>(
         cache_src_index, num_cache, local_cache_counts,
-        _part_cache->Rank(), _part_cache->CommSize());
+        local_part_map, num_part);
   sampler_device->StreamSync(_sampler_ctx, stream);
 
   size_t workspace_sz;
@@ -570,7 +583,7 @@ template <typename T>
 inline void dispatch_combine_cache(dim3 grid, dim3 block, cudaStream_t stream,
                           void *output, const IdType *cache_src_index,
                           const IdType *cache_dst_index, const size_t num_cache, size_t dim,
-                          const void *norm_cache, const DistArray::DeviceHandle &part_cache) {
+                          const void *norm_cache, const DeviceDistFeature &part_cache) {
   if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
     combine_cache_data<T><<<grid, block, 0, stream>>>(
       output, cache_src_index, cache_dst_index, num_cache,
@@ -600,9 +613,9 @@ void GPUCacheManager::CombineCacheData(void *output,
   }
   const dim3 grid(RoundUpDiv(num_cache, static_cast<size_t>(block.y)));
 
-  DistArray::DeviceHandle part_cache{};
+  DeviceDistFeature part_cache;
   if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
-    part_cache = _part_cache->GetDeviceHandle();
+    part_cache = _dist_graph->DeviceFeatureHandle();
   }
 
   switch (_dtype) {

@@ -104,6 +104,8 @@ struct RunConfig {
 
   // if use dist graph
   static bool                 use_dist_graph;
+  // store how much to GPUs
+  static double               dist_graph_percentage;
   static int                  dist_graph_part_cpu;
 
   // partition cache across gpu, ensure load balance
