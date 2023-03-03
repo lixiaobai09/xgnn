@@ -282,7 +282,6 @@ def run(worker_id, run_config):
         (free, total) = torch.cuda.mem_get_info()
         peek_memory = max(peek_memory, total - free)
         if worker_id == 0:
-            (free, total) = torch.cuda.mem_get_info()
             used = (total - free) / 1024 / 1024 / 1024
             torch_mem_reserved = torch.cuda.memory_reserved() / 1024 / 1024 / 1024
             print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f} | torch memory used {:.2f}'.format(
