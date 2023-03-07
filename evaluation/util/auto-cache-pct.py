@@ -1,6 +1,8 @@
 import subprocess
 import os, sys, re
 import pathlib
+import time
+import fcntl
 import dataclasses
 from typing import List
 import logging
@@ -74,15 +76,50 @@ def find_cache_pct_impl(cmd:Cmd):
             raise UnablePredCacheErr("cannot predict next cache pct")
 
     def _try_cache_pct(cmd:str):
-        proc = subprocess.run(args=cmd.split(), env=os.environ, capture_output=True)
-        output = proc.stdout.decode()
+        # proc = subprocess.run(args=cmd.split(), env=os.environ, capture_output=True)
+        proc = subprocess.Popen(args=cmd.split(), env=os.environ, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        stdout_fd = proc.stdout.fileno()
+        stderr_fd = proc.stderr.fileno()
+        stdout_fl = fcntl.fcntl(stdout_fd, fcntl.F_GETFL)
+        stderr_fl = fcntl.fcntl(stderr_fd, fcntl.F_GETFL)
+        fcntl.fcntl(stdout_fd, fcntl.F_SETFL, stdout_fl | os.O_NONBLOCK)
+        fcntl.fcntl(stderr_fd, fcntl.F_SETFL, stderr_fl | os.O_NONBLOCK)
+        output, errout = "", ""
+        while True:
+            # output += proc.stdout.read().decode()
+            # out_l, err_l = proc.stdout.readline().decode(), proc.stderr.readline().decode()
+            out_l, err_l = "", ""
+            try:
+                out_l = proc.stdout.readline().decode()
+            except:
+                pass
+            try:
+                err_l = proc.stderr.readline().decode()
+            except:
+                pass
+            if out_l == '' and err_l == '':
+                if proc.poll() is not None: 
+                    break
+                elif re.search(r'\[[0-9]{4}\-[0-9]{2}\-[0-9]{2} .*: E .*\]', errout, flags=re.MULTILINE) is not None:
+                    logging.debug("detect error during execution, killing the task")
+                    time.sleep(5)
+                    proc.kill()
+                    proc.wait()
+                    break
+                else: 
+                    time.sleep(5)
+                continue
+            output += out_l
+            errout += err_l
+        # print(errout)  
+            
         if 'epoch_time:total' in output:
             gpu_memorys = re.findall(r'\| GPU memory ([0-9]+\.[0-9]+)', output)
             gpu_memory = max([float(m) for m in gpu_memorys])
             err = None
         else:
             gpu_memory = None
-            errout = proc.stderr.decode()
+            # errout = proc.stderr.decode()
             try:
                 err = re.search(r'\[.* E .*\].*', errout, flags=re.MULTILINE).group(0)
             except:
@@ -109,7 +146,7 @@ def find_cache_pct_impl(cmd:Cmd):
         proc, gpu_memory, err = _try_cache_pct(try_cmd)
         msg = f'error: \n{err}' if err is not None else f'gpu memory usage {gpu_memory}'
         logging.info(f'\x1b[35;1m[TRY RESULT]\x1b[0m: cache_pct {cache_pct_int}% in [{left}, {right}), {msg}')
-        if not err:
+        if err is None:
             left = cache_pct_int
             try:
                 nxt_cache_pct = _get_next_cache_pct(cache_pct, gpu_memory)
@@ -119,7 +156,7 @@ def find_cache_pct_impl(cmd:Cmd):
                 logging.debug(f'pred_next_cache_pct {pred_cache_pct} binary_search_next_cache_pct {nxt_bin_mid}')
                 if pred_cache_pct <= nxt_bin_mid:
                     pred_cache_pct = None
-            except UnablePredCacheErr as e:
+            except (UnablePredCacheErr, TypeError) as e:
                 pred_cache_pct = None
         else:
             right = cache_pct_int
