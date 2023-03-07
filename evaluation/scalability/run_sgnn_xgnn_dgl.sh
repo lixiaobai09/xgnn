@@ -66,7 +66,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 1 --cache-policy degree --batc
 log=${xgnn_log}_1wk
 python ${sgnn_dir}/train_${model}.py --num-worker 1 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[1]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[1]} > ${log}.log 2> ${log}.err
 
 ### 2GPU ###
 # log=${dgl_log}_2wk
@@ -82,7 +82,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 2 --cache-policy degree --batc
 log=${xgnn_log}_2wk
 python ${sgnn_dir}/train_${model}.py --num-worker 2 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[2]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[2]} > ${log}.log 2> ${log}.err
 
 # ### 3GPU ###
 # log=${dgl_log}_3wk
@@ -98,7 +98,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 3 --cache-policy degree --batc
 log=${xgnn_log}_3wk
 python ${sgnn_dir}/train_${model}.py --num-worker 3 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[3]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[3]} > ${log}.log 2> ${log}.err
 
 # ### 4GPU ###
 # log=${dgl_log}_4wk
@@ -114,7 +114,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 4 --cache-policy degree --batc
 log=${xgnn_log}_4wk
 python ${sgnn_dir}/train_${model}.py --num-worker 4 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[4]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[4]} > ${log}.log 2> ${log}.err
 
 ### 5GPU ###
 # log=${dgl_log}_5wk
@@ -130,7 +130,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 5 --cache-policy degree --batc
 log=${xgnn_log}_5wk
 python ${sgnn_dir}/train_${model}.py --num-worker 5 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[5]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[5]} > ${log}.log 2> ${log}.err
 
 # # 6GPU
 # log=${dgl_log}_6wk
@@ -146,7 +146,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 6 --cache-policy degree --batc
 log=${xgnn_log}_6wk
 python ${sgnn_dir}/train_${model}.py --num-worker 6 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[6]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[6]} > ${log}.log 2> ${log}.err
 
 # # 7GPU
 # log=${dgl_log}_7wk
@@ -162,7 +162,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 7 --cache-policy degree --batc
 log=${xgnn_log}_7wk
 python ${sgnn_dir}/train_${model}.py --num-worker 7 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[7]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[7]} > ${log}.log 2> ${log}.err
 
 # # 8GPU
 # log=${dgl_log}_8wk
@@ -178,7 +178,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 8 --cache-policy degree --batc
 log=${xgnn_log}_8wk
 python ${sgnn_dir}/train_${model}.py --num-worker 8 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
-    --gpu-extract --use-dist-graph --cache-percentage ${xgnn_cache_pct[8]} > ${log}.log 2> ${log}.err
+    --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[8]} > ${log}.log 2> ${log}.err
 
 }
 
