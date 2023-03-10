@@ -17,10 +17,10 @@ num_epoch=3
 
 mkdir -p "$log_dir"
 
-xgnn_pa_gcn_cache_pct=(-1 0.07 0.13 0.15 0.15 0.14 0.15 0.16 0.16)
-xgnn_uk_graphsage_cache_pct=(-1 0.01 0.09 0.11 0.12 0.07 0.11 0.10 0.12)
+xgnn_pa_gcn_cache_pct=(-1 0.08 0.29 0.51 0.69 0.22 0.49 0.36 0.69)
+xgnn_uk_graphsage_cache_pct=(-1 0.01 0.18 0.34 0.51 0.12 0.34 0.24 0.51)
 
-sgnn_pa_gcn_cache_pct=(-1 0.07 0.07 0.07 0.06 0.07 0.07 0.07 0.07)
+sgnn_pa_gcn_cache_pct=(-1 0.08 0.08 0.08 0.08 0.08 0.08 0.08 0.08)
 sgnn_uk_graph_cache_pct=(-1 0.01 0.01 0.01 0.01 0.01 0.01 0.01 0.01)
 
 declare -A xgnn_cache_percent=(
