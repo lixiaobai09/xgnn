@@ -174,7 +174,6 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
           _sampler_ctx, sizeof(IdType) * _num_nodes));
 
   _cache_nbytes = GetTensorBytes(_dtype, {_num_cached_nodes, _dim});
-  Profiler::Get().LogInit(kLogInitL1FeatMemory, _cache_nbytes);
 
   // 1. Initialize the cpu hashtable
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
