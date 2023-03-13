@@ -35,9 +35,10 @@ def parse_args():
         argparser.error('Add --file argument')
     return ret
 
-def parse_result_sgnn(file_name, show_list, split_str):
+def parse_result_sgnn(file_name, show_list):
     pattern_time  = r'^test_result:epoch_time:(.+)=([0-9]+\.[0-9]+)$'
     pattern_cache = r'^test_result:(cache_.+)=([0-9]+\.[0-9]+)$'
+    ret = []
     res = {}
     if (os.path.exists(file_name)):
         with open(file_name, 'r') as file:
@@ -50,20 +51,16 @@ def parse_result_sgnn(file_name, show_list, split_str):
                     res[m.group(1)] = int(float(m.group(2)) * 100.0)
     for show_var in show_list:
         if (res):
-            if (show_var == 'mark_cache_copy_time'):
-                print('{:.2f}({:d},{:d})'.format(
-                    res[show_var],
-                    res['cache_percentage'],
-                    res['cache_hit_rate']),
-                    end=split_str)
-            else:
-                print('{:.2f}'.format(res[show_var]), end=split_str)
+            ret.append(res[show_var])
         else:
-            print(OOM, end=split_str)
+            ret.append(0.0)
+    return ret
 
 if __name__ == '__main__':
     arguments   = parse_args()
     directory   = arguments['directory']
+    print("model\tdataset\tmethod\tsample_time\ttrain_time")
+    opt_methods = ["naive", "P_graph", "P_cache", "S_opt"]
     for dataset in dataset_list:
         prefix_str = f"xgnn_graphsage_{dataset}_"
         if (dataset in ["tw", "pa"]):
@@ -71,11 +68,11 @@ if __name__ == '__main__':
         for i in range(1, 5):
             file_name = directory + "/" + prefix_str + str(i) + ".log"
             # print("file_name: ", file_name)
-            parse_result_sgnn(
+            if (dataset in ["tw", "pa"]):
+                print(f"gcn\t{dataset}\t{opt_methods[i-1]}", end="")
+            else:
+                print(f"graphsage\t{dataset}\t{opt_methods[i-1]}", end="")
+            ret = parse_result_sgnn(
                     file_name,
-                    [
-                        "sample_no_mark",
-                        "mark_cache_copy_time",
-                    ],
-                    split_str = split_in)
-            parse_result_sgnn(file_name, ['train_total'], split_out)
+                    ["sample_no_mark", "mark_cache_copy_time", "train_total"])
+            print("\t{:.2f}\t{:.2f}".format(ret[0], (ret[1] + ret[2])))
