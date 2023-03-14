@@ -60,7 +60,7 @@ if __name__ == '__main__':
     arguments   = parse_args()
     directory   = arguments['directory']
     print("model\tdataset\tmethod\tsample_time\ttrain_time")
-    opt_methods = ["naive", "P_graph", "P_cache", "S_opt"]
+    opt_methods = ["naive", "P_{graph}", "P_{cache}", "S_{opt}"]
     for dataset in dataset_list:
         prefix_str = f"xgnn_graphsage_{dataset}_"
         if (dataset in ["tw", "pa"]):
