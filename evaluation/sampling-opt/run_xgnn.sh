@@ -26,24 +26,39 @@ sample_type=khop0
 log=${xgnn_log}_tw_${sample_type}_${num_worker}wk
 python ${sgnn_dir}/train_${model}.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset twitter --sample-type ${sample_type} \
-    --use-dist-graph --cache-percentage 0.17 > ${log}.log 2> ${log}.err
+    --use-dist-graph 1 --cache-percentage 0.20 > ${log}.log 2> ${log}.err
 
 sample_type=khop3
 log=${xgnn_log}_tw_${sample_type}_${num_worker}wk
 python ${sgnn_dir}/train_${model}.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset twitter --sample-type ${sample_type} \
-    --use-dist-graph --cache-percentage 0.17 > ${log}.log 2> ${log}.err
+    --use-dist-graph 1 --cache-percentage 0.20 > ${log}.log 2> ${log}.err
 
 
 ### papers100M ###
+# sample_type=khop0
+# log=${xgnn_log}_pa_${sample_type}_${num_worker}wk
+# python ${sgnn_dir}/train_${model}.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 \
+#     --num-epoch ${num_epoch} --dataset papers100M --sample-type ${sample_type} \
+#     --use-dist-graph 1 --cache-percentage 0.15 > ${log}.log 2> ${log}.err
+
+# sample_type=khop3
+# log=${xgnn_log}_pa_${sample_type}_${num_worker}wk
+# python ${sgnn_dir}/train_${model}.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 \
+#     --num-epoch ${num_epoch} --dataset papers100M --sample-type ${sample_type} \
+#     --use-dist-graph 1 --cache-percentage 0.15 > ${log}.log 2> ${log}.err
+
+
+### com-friendster ###
 sample_type=khop0
-log=${xgnn_log}_pa_${sample_type}_${num_worker}wk
+log=${xgnn_log}_cf_${sample_type}_${num_worker}wk
 python ${sgnn_dir}/train_${model}.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 \
-    --num-epoch ${num_epoch} --dataset papers100M --sample-type ${sample_type} \
-    --use-dist-graph --cache-percentage 0.15 > ${log}.log 2> ${log}.err
+    --num-epoch ${num_epoch} --dataset com-friendster --sample-type ${sample_type} \
+    --use-dist-graph 1 --cache-percentage 0 > ${log}.log 2> ${log}.err
 
 sample_type=khop3
-log=${xgnn_log}_pa_${sample_type}_${num_worker}wk
+log=${xgnn_log}_cf_${sample_type}_${num_worker}wk
 python ${sgnn_dir}/train_${model}.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 \
-    --num-epoch ${num_epoch} --dataset papers100M --sample-type ${sample_type} \
-    --use-dist-graph --cache-percentage 0.15 > ${log}.log 2> ${log}.err
+    --num-epoch ${num_epoch} --dataset com-friendster --sample-type ${sample_type} \
+    --use-dist-graph 1 --cache-percentage 0 > ${log}.log 2> ${log}.err
+

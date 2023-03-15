@@ -41,7 +41,7 @@ xgnn_gcn_nvltx() {
         --kernel-name $sample_kernel --metrics $metrics \
         `which python` $sgnn_dir/train_$model.py --num-worker $num_worker \
         --cache-policy degree --batch-size 6000 --num-epoch $num_epoch --dataset $dataset \
-        --sample-type $sample_type --use-dist-graph --cache-percentage 0 \
+        --sample-type $sample_type --use-dist-graph 1 --cache-percentage 0 \
         > $log_dir/$log.log 2> $log_dir/$log.err"
 
     echo ">>> $cmd"
@@ -54,13 +54,13 @@ xgnn_gcn_nvltx "twitter" "khop0" "sample_khop0" "4"
 xgnn_gcn_nvltx "twitter" "khop3" "sample_khop3" "4"
 
 # pa
-xgnn_gcn_nvltx "papers100M" "khop0" "sample_khop0" "4"
-xgnn_gcn_nvltx "papers100M" "khop3" "sample_khop3" "4"
+# xgnn_gcn_nvltx "papers100M" "khop0" "sample_khop0" "4"
+# xgnn_gcn_nvltx "papers100M" "khop3" "sample_khop3" "4"
 
 # # uk
 # xgnn_gcn_nvltx "uk-2006-05" "khop0" "sample_khop0"
 # xgnn_gcn_nvltx "uk-2006-05" "khop3" "sample_khop3"
 
 # # cf
-# xgnn_gcn_nvltx "com-friendster" "khop0" "sample_khop0"
-# xgnn_gcn_nvltx "com-friendster" "khop3" "sample_khop3"
+xgnn_gcn_nvltx "com-friendster" "khop0" "sample_khop0" "4"
+xgnn_gcn_nvltx "com-friendster" "khop3" "sample_khop3" "4"
