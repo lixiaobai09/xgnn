@@ -9,12 +9,13 @@ sgnn_dir=${MY_DIR}/../../example/samgraph/sgnn/
 export SAMGRAPH_HUGE_PAGE=1
 export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
 
+set -x
 # config
 log_dir=${MY_DIR}/run-logs/${TIME_STAMPS}
 dataset=uk-2006-05
 ds_short=uk
 model=graphsage
-num_epoch=3
+num_epoch=10
 
 dgl_log=${log_dir}/dgl_${model}_${ds_short}
 sgnn_log=${log_dir}/sgnn_${model}_${ds_short}
@@ -42,6 +43,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 2 --cache-policy degree --batc
 python ${sgnn_dir}/train_${model}.py --num-worker 2 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage 0.18 > ${log}-bk.log 2> ${log}-bk.err
+
 
 ### 4GPU ###
 log=${xgnn_log}_4wk

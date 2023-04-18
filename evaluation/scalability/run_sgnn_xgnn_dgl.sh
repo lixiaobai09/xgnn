@@ -13,7 +13,7 @@ set -x
 
 # config
 log_dir=${MY_DIR}/run-logs/${TIME_STAMPS}
-num_epoch=3
+num_epoch=10
 
 mkdir -p "$log_dir"
 
