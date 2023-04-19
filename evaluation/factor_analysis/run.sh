@@ -7,7 +7,7 @@ TIME_STAMPS=$(date "+%Y-%m-%d_%H-%M-%S")
 log_dir=./run-logs/factor_analysis/${TIME_STAMPS}
 
 num_worker=4
-num_epoch=5
+num_epoch=10
 
 mkdir -p $log_dir
 
