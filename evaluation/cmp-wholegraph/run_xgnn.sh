@@ -14,10 +14,12 @@ set -x
 # config
 log_dir=${MY_DIR}/run-logs/${TIME_STAMPS}
 num_epoch=10
-dataset=products
+
 
 mkdir -p "$log_dir"
 
+# gcn+pr
+dataset=products
 log=${log_dir}/xgnn_gcn_pr
 python ${sgnn_dir}/train_gcn.py --num-worker 4 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
@@ -25,5 +27,18 @@ python ${sgnn_dir}/train_gcn.py --num-worker 4 --cache-policy degree --batch-siz
 
 log=${log_dir}/xgnn_gcn_pr_bk
 python ${sgnn_dir}/train_gcn.py --num-worker 4 --cache-policy degree --batch-size 6000 \
+    --num-epoch ${num_epoch} --dataset ${dataset} --sample-type khop3 --part-cache \
+    --gpu-extract --use-dist-graph 1 --cache-percentage 1 > ${log}.log 2> ${log}.err
+
+
+# graphsage + tw
+dataset=twitter
+log=${log_dir}/xgnn_graphsage_tw
+python ${sgnn_dir}/train_graphsage.py --num-worker 4 --cache-policy degree --batch-size 6000 \
+    --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
+    --gpu-extract --use-dist-graph 1 --cache-percentage 1 > ${log}.log 2> ${log}.err
+
+log=${log_dir}/xgnn_graphsage_tw_bk
+python ${sgnn_dir}/train_graphsage.py --num-worker 4 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage 1 > ${log}.log 2> ${log}.err
