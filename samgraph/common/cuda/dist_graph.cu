@@ -484,6 +484,46 @@ DeviceDistFeature DistGraph::DeviceFeatureHandle() const {
 }
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
+#if 1
+  _group_configs.clear();
+  _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(1), {2, 3},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(2), {4, 5},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(3), {6, 7},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+
+  _group_configs.emplace_back(GroupConfig(GPU(4), {0, 1},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(5), {2, 3},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(6), {4, 5},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(7), {6, 7},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+#else
+  _group_configs.clear();
+  _group_configs.emplace_back(GroupConfig(GPU(0), {0, 4},
+      {GPU(0), GPU(6), GPU(2), GPU(3), GPU(0), GPU(1), GPU(6), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(1), {1, 5},
+      {GPU(7), GPU(1), GPU(2), GPU(3), GPU(0), GPU(1), GPU(2), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(2), {2, 6},
+      {GPU(0), GPU(1), GPU(2), GPU(3), GPU(4), GPU(1), GPU(2), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(3), {3, 7},
+      {GPU(0), GPU(1), GPU(2), GPU(3), GPU(0), GPU(5), GPU(2), GPU(3)}));
+
+  _group_configs.emplace_back(GroupConfig(GPU(4), {4, 3},
+      {GPU(7), GPU(6), GPU(5), GPU(4), GPU(4), GPU(5), GPU(2), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(5), {5, 2},
+      {GPU(7), GPU(6), GPU(5), GPU(4), GPU(4), GPU(5), GPU(6), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(6), {6, 1},
+      {GPU(0), GPU(6), GPU(5), GPU(4), GPU(0), GPU(5), GPU(6), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(7), {7, 0},
+      {GPU(7), GPU(1), GPU(5), GPU(4), GPU(4), GPU(1), GPU(6), GPU(7)}));
+
+  /*
   if (RunConfig::dist_graph_part_cpu < 1) {
     PartitionSolver solver(ctxes);
     _group_configs = solver.solve();
@@ -506,8 +546,11 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
       _group_configs.emplace_back(ctx, part_ids, ctx_group);
     }
   }
+  */
+#endif
   for (auto &config : _group_configs) {
-    LOG(INFO) << config;
+    // LOG(INFO) << config;
+    std::cout << config << std::endl;
   }
 
   int num_worker = ctxes.size();
