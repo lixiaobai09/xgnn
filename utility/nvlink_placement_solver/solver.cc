@@ -22,11 +22,11 @@ class Solver {
 };
 
 template<typename T>
-std::set<T> operator- (const std::set<T> &a, const std::set<T> &b) {
-  std::set<T> ret;
+std::vector<T> operator- (const std::set<T> &a, const std::multiset<T> &b) {
+  std::vector<T> ret;
   for (auto i : a) {
     if (!b.count(i)) {
-      ret.insert(i);
+      ret.emplace_back(i);
     }
   }
   return std::move(ret);
@@ -34,18 +34,22 @@ std::set<T> operator- (const std::set<T> &a, const std::set<T> &b) {
 
 namespace {
 
+int num_result = 0;
+
 void solver_recursive(int current_gpu,
     int n_gpu,
     int access_current_id,
     std::vector<int> can_not_access_parts,
     std::vector<std::set<int>> &store_parts,
-    std::vector<std::multi_set<int>> &can_access_parts,
-    const set<int> &parts_universal_set,
+    std::vector<std::multiset<int>> &can_access_parts,
+    const std::set<int> &parts_universal_set,
     const std::vector<std::set<int>> &neighbor_adjacency) {
 
   // stop condition
-  if (present_gpu_id == (n_gpu - 1)) {
+  if (current_gpu == n_gpu) {
     // TODO: check if store the result
+    std::cout << "----------- result " << (num_result++)
+              << " -----------" << std::endl;
     for (int i = 0; i < store_parts.size(); ++i) {
       std::cout << "GPU " << i << ": ";
       for (auto part_id : store_parts[i]) {
@@ -62,7 +66,7 @@ void solver_recursive(int current_gpu,
     access_current_id = 0;
   }
   if (access_current_id < can_not_access_parts.size()) {
-    need_part = can_not_access_parts[access_current_id];
+    int need_part = can_not_access_parts[access_current_id];
     // id, stored_parts_size, need_score, if_same_part_in_neighbors
     std::vector<std::tuple<int, int, int, int>> tmp_vec;
     for (auto j : neighbor_adjacency[current_gpu]) {
@@ -89,6 +93,7 @@ void solver_recursive(int current_gpu,
           if (std::get<3>(x) != std::get<3>(y)) {
             return std::get<3>(x) < std::get<3>(y);
           }
+          return std::get<0>(x) < std::get<0>(y);
         });
     int last = (tmp_vec.size() - 1);
     auto cmp_equal = [](const std::tuple<int, int, int, int> &x,
@@ -96,7 +101,7 @@ void solver_recursive(int current_gpu,
       return (std::get<1>(x) == std::get<1>(y)
           && std::get<2>(x) == std::get<2>(y)
           && std::get<3>(x) == std::get<3>(y));
-    }
+    };
     while (!cmp_equal(tmp_vec[0], tmp_vec[last])) {
       tmp_vec.pop_back();
       --last;
@@ -139,7 +144,7 @@ void Solver::Solve(int n_gpu,
       _num_ctx, std::vector<int>(_num_ctx, -1));
   std::vector<std::set<int>> store_parts(_num_ctx);
 
-  std::vector<std::set<int>> can_access_parts(_num_ctx);
+  std::vector<std::multiset<int>> can_access_parts(_num_ctx);
   // from bandwith matrix
   std::vector<std::set<int>> neighbor_adjacency(_num_ctx);
   std::set<int> parts_universal_set;
