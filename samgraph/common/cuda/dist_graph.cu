@@ -27,7 +27,7 @@ namespace cuda {
 namespace {
 
 template<typename T>
-std::vector<T> operator- (const std::set<T> &a, const std::set<T> &b) {
+std::vector<T> operator- (const std::set<T> &a, const std::multiset<T> &b) {
   std::vector<T> ret;
   for (auto i : a) {
     if (!b.count(i)) {
@@ -37,201 +37,171 @@ std::vector<T> operator- (const std::set<T> &a, const std::set<T> &b) {
   return std::move(ret);
 };
 
-}; // namespace
-
-/*
-DeviceP2PComm *DeviceP2PComm::_p2p_comm = nullptr;
-
-DeviceP2PComm::DeviceP2PComm(int num_worker) 
-  : _init(false), _dev(Constant::kEmptyKey), _comm_size(num_worker),
-    _rank(Constant::kEmptyKey) {
-  std::memset(_peers, 0xff, sizeof(_peers));
-  _shared_data = static_cast<SharedData *>(mmap(
-    NULL, sizeof(SharedData), PROT_WRITE | PROT_READ, MAP_SHARED | MAP_ANONYMOUS, -1, 0));
-  pthread_barrierattr_t attr;
-  pthread_barrierattr_init(&attr);
-  pthread_barrierattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-  pthread_barrier_init(&_shared_data->barrier, &attr, _comm_size);
-}
-
-DeviceP2PComm::~DeviceP2PComm() {
-  munmap(_shared_data, sizeof(SharedData));
-  _init = false;
-}
-
-void DeviceP2PComm::Init(int num_worker) {
-  if (_p2p_comm == nullptr)
-    _p2p_comm = new DeviceP2PComm(num_worker);
-}
-
-void DeviceP2PComm::Create(int worker_id, int device_id) {
-  CHECK_EQ(worker_id, device_id);
-  CHECK_NE(_p2p_comm, nullptr);
-  // get p2p access matrix
-  CUDA_CALL(cudaSetDevice(device_id));
-  for (IdType i = 0; i < _p2p_comm->_comm_size; i++) {
-      int& flag = _p2p_comm->_shared_data->p2p_matrix[device_id][i];
-    if (i != device_id) {
-      CUDA_CALL(cudaDeviceCanAccessPeer(&flag, device_id, i));
-    } else {
-      flag = 1;
+void search_access_config(int gpu,
+    int part_id,
+    int n_part,
+    std::vector<int> &access_config,
+    std::vector<int> &result,
+    double &min_bandwidth,
+    const std::vector<std::set<int>> &part_gpu_map,
+    const double bandwidth_matrix[][kMaxDevice]) {
+  if (part_id == n_part) {
+    double max_bandwidth = 0.0;
+    const double *bandwidth_list = bandwidth_matrix[gpu];
+    int n_gpu = n_part;
+    std::vector<int> access_cnt(n_gpu, 0);
+    for (auto gpu_i : access_config) {
+      access_cnt[gpu_i] += 1;
     }
-  }
-  _p2p_comm->Barrier();
-  // find p2p clique
-  int my_clique;
-  auto cliques = _p2p_comm->SplitClique(worker_id, my_clique);
-  auto& clique = cliques[my_clique];
-  if (cliques.size() > 1) {
-    // need to split p2p communication
-    std::stringstream ss;
-    int new_rank = -1;
-    int new_comm_size = clique.count();
-    ss << "p2pComm-" << getenv("USER");
-    for (int i = 0, rk = 0; i < _p2p_comm->_comm_size; i++) {
-      if (clique[i]) {
-        if (i == device_id) new_rank = rk;
-        ss << "-" << i;
-        rk++;
+    for (int i = 0; i < n_gpu; ++i) {
+      if (access_cnt[i]
+          && (
+            static_cast<double>(access_cnt[i]) / bandwidth_list[i]
+            > max_bandwidth
+          )) {
+        max_bandwidth = static_cast<double>(access_cnt[i]) / bandwidth_list[i];
       }
     }
-    SharedData *shared_data = nullptr;
-    if (new_rank == 0) {
-      shm_unlink(ss.str().c_str());
-      auto shm_fd = shm_open(ss.str().c_str(), O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
-      CHECK_NE(shm_fd, -1);
-      int err = ftruncate(shm_fd, sizeof(SharedData));
-      CHECK_NE(err, -1);
-      shared_data = static_cast<SharedData *>(mmap(
-        NULL, sizeof(SharedData), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0));
-      CHECK_NE(shared_data, MAP_FAILED);
-      pthread_barrierattr_t attr;
-      pthread_barrierattr_init(&attr);
-      pthread_barrierattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
-      pthread_barrier_init(&shared_data->barrier, &attr, new_comm_size);
-      _p2p_comm->Barrier();
-    } else {
-      _p2p_comm->Barrier();
-      auto shm_fd = shm_open(ss.str().c_str(), O_RDWR, S_IRUSR | S_IWUSR);
-      CHECK_NE(shm_fd, -1);
-      shared_data = static_cast<SharedData *>(mmap(
-        NULL, sizeof(SharedData), PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0));
-      CHECK_NE(shared_data, MAP_FAILED);
+    if (max_bandwidth < min_bandwidth) {
+      min_bandwidth = max_bandwidth;
+      result = access_config;
     }
-    munmap(_p2p_comm->_shared_data, sizeof(SharedData));
-    _p2p_comm->_shared_data = shared_data;
-    _p2p_comm->_comm_size = new_comm_size;
-    _p2p_comm->_rank = new_rank;
-  } else { 
-    // each pair gpu can p2p access
-    _p2p_comm->_rank = worker_id;
+    return;
   }
-  _p2p_comm->_dev = device_id;
-  for (int i = 0, j = 0; i < clique.size(); i++) {
-    if (clique[i])
-      _p2p_comm->_peers[j++] = i;
-  }
-  _p2p_comm->Barrier();
-  _p2p_comm->_init = true;
-}
-
-std::vector<std::bitset<kMaxDevice>> DeviceP2PComm::SplitClique(int device_id, int &my_clique) {
-  std::bitset<kMaxDevice> gpu_cnt = 0;
-  std::vector<std::bitset<kMaxDevice>> cliques;
-  // using gpu_peer_info_t = std::pair<std::bitset<kMaxDevice>, IdType>;
-  for (IdType i = 0; i < _p2p_comm->_comm_size && gpu_cnt.count() < _p2p_comm->_comm_size; i++) {
-    if (gpu_cnt[i]) continue;    
-    std::bitset<kMaxDevice> gpu1, cur, none, max_clique;
-    for (IdType j = 0; j < _p2p_comm->_comm_size; j++) {
-      if (_p2p_comm->_shared_data->p2p_matrix[i][j])
-        gpu1[j] = 1;
-    }
-    cur[i] = 1;
-    gpu1 ^= cur;
-    gpu1 = gpu1 & (~gpu_cnt);
-    FindClique(cur, gpu1, none, max_clique);
-    cliques.push_back(max_clique);
-    gpu_cnt |= max_clique;
-    if (max_clique[device_id])
-      my_clique = cliques.size() - 1;
-  }
-  // std::stringstream ss;
-  // for (auto clique : cliques) {
-  //   for (int i = 0; i < kMaxDevice; i++) {
-  //     if (clique[i]) ss << i << " ";
-  //   }
-  //   ss << "| ";
-  // }
-  // LOG(INFO) << "Cliques: " << ss.str();
-  return cliques;
-}
-
-void DeviceP2PComm::FindClique(std::bitset<kMaxDevice> clique, 
-                               std::bitset<kMaxDevice> neighbor, 
-                               std::bitset<kMaxDevice> none,
-                               std::bitset<kMaxDevice> &max_clique) {
-  if (!neighbor.count() && !none.count()) {
-    if (clique.count() > max_clique.count())
-      max_clique = clique;
-  }
-  if (!neighbor.count()) return;
-  auto get_neighbor = [&](IdType dev) {
-    std::bitset<kMaxDevice> nb;
-    for (IdType i = 0; i < _p2p_comm->_comm_size; i++) {
-      if (_p2p_comm->_shared_data->p2p_matrix[dev][i])
-        nb[i] = 1;
-    }
-    nb[dev] = 0;
-    return nb;
-  };
-  IdType pivot = neighbor._Find_first();
-  std::bitset<kMaxDevice> pivot_nb = get_neighbor(pivot);
-  auto next_nb = neighbor & (~pivot_nb);
-  for (IdType i = 0; i < _p2p_comm->_comm_size; i++) {
-    if (next_nb[i]) {
-      auto nb = get_neighbor(i);
-      auto clique_ = clique;
-      clique_[i] = 1;
-      FindClique(clique_, neighbor & nb, none & nb, max_clique);
-      neighbor[i] = 0;
-      none[i] = 1;
-    }
+  for (auto gpu_j : part_gpu_map[part_id]) {
+    access_config.emplace_back(gpu_j);
+    search_access_config(gpu, part_id + 1, n_part,
+        access_config, result, min_bandwidth,
+        part_gpu_map, bandwidth_matrix);
+    access_config.pop_back();
   }
 }
 
-DistArray::DistArray(void *devptr, DeviceP2PComm *comm, StreamHandle stream) 
-  : _comm(comm)
-{
-  auto cu_stream = static_cast<cudaStream_t>(stream);
-  CUDA_CALL(cudaSetDevice(_comm->DevId()));
-  CUDA_CALL(cudaMallocHost((void**)&_devptrs_h, sizeof(void*) * CommSize()));
-  CUDA_CALL(cudaMalloc((void**)&_devptrs_d, sizeof(void*) * CommSize()));
-  CUDA_CALL(cudaIpcGetMemHandle(_comm->IpcMemHandle(Rank()), devptr));
-  _comm->Barrier();
-  for (size_t i = 0; i < CommSize(); i++) {
-    if (i != Rank()) {
-      CUDA_CALL(cudaIpcOpenMemHandle(&_devptrs_h[i], *_comm->IpcMemHandle(i), cudaIpcMemLazyEnablePeerAccess));
-    } else {
-      _devptrs_h[i] = devptr;
+using ResultType = std::vector<std::tuple<std::set<int>, std::vector<int>>>;
+
+void solver_recursive(int current_gpu,
+    int n_gpu,
+    int access_current_id,
+    std::vector<int> can_not_access_parts,
+    std::vector<std::set<int>> &store_parts,
+    std::vector<std::multiset<int>> &can_access_parts,
+    ResultType &result,
+    double &min_max_bandwidth,
+    const std::set<int> &parts_universal_set,
+    const std::vector<std::set<int>> &neighbor_adjacency,
+    const double bandwidth_matrix[][kMaxDevice]) {
+
+  // stop condition
+  if (current_gpu == n_gpu) {
+    std::vector<std::vector<int>> access_config_list;
+    double max_bandwidth = 0.0;
+    for (int gpu = 0; gpu < store_parts.size(); ++gpu) {
+      // std::cout << "gpu: " << gpu << std::endl;
+      std::vector<std::set<int>> part_gpu_map(n_gpu);
+      for (auto neighbor : neighbor_adjacency[gpu]) {
+        for (auto store_part : store_parts[neighbor]) {
+          part_gpu_map[store_part].insert(neighbor);
+        }
+      }
+      std::vector<int> access_config;
+      std::vector<int> result;
+      double min_bandwidth = std::numeric_limits<double>::max();
+      search_access_config(gpu, 0, n_gpu, access_config, result,
+          min_bandwidth, part_gpu_map, bandwidth_matrix);
+      if (min_bandwidth > max_bandwidth) {
+        max_bandwidth = min_bandwidth;
+      }
+      access_config_list.emplace_back(result);
+      // for (auto gpu_j : result) { std::cout << gpu_j << " "; }
+      // std::cout << std::endl;
     }
+    if (max_bandwidth < min_max_bandwidth) {
+      min_max_bandwidth = max_bandwidth;
+      result.clear();
+      for (int i = 0; i < n_gpu; ++i) {
+        result.emplace_back(store_parts[i], access_config_list[i]);
+      }
+    }
+    return;
   }
-  _comm->Barrier();
-  CUDA_CALL(cudaMemcpyAsync(_devptrs_d, _devptrs_h, sizeof(void*) * CommSize(), cudaMemcpyDefault, cu_stream));
-  CUDA_CALL(cudaStreamSynchronize(cu_stream));
+  if (can_not_access_parts.size() == 0) {
+    // get can not access parts for GPU i
+    can_not_access_parts =
+      (parts_universal_set - can_access_parts[current_gpu]);
+    access_current_id = 0;
+  }
+  if (access_current_id < can_not_access_parts.size()) {
+    int need_part = can_not_access_parts[access_current_id];
+    // id, stored_parts_size, need_score, if_same_part_in_neighbors
+    std::vector<std::tuple<int, int, int, int>> tmp_vec;
+    for (auto j : neighbor_adjacency[current_gpu]) {
+      int need_score = 0;
+      for (auto k : neighbor_adjacency[j]) {
+        if (!can_access_parts[k].count(need_part)) {
+          ++need_score;
+        }
+      }
+      tmp_vec.emplace_back(j, store_parts[j].size(), need_score,
+          // XXX: if need this?
+          (can_access_parts[j].count(need_part) == 0? 0 : 1));
+    }
+    std::sort(tmp_vec.begin(), tmp_vec.end(), [](auto x, auto y){
+          // stored_parts_size
+          if (std::get<1>(x) != std::get<1>(y)) {
+            return std::get<1>(x) < std::get<1>(y);
+          }
+          // need_score
+          if (std::get<2>(x) != std::get<2>(y)) {
+            return std::get<2>(x) > std::get<2>(y);
+          }
+          // if_same_part_in_neighbors 0 or 1
+          if (std::get<3>(x) != std::get<3>(y)) {
+            return std::get<3>(x) < std::get<3>(y);
+          }
+          return std::get<0>(x) < std::get<0>(y);
+        });
+    int last = (tmp_vec.size() - 1);
+    auto cmp_equal = [](const std::tuple<int, int, int, int> &x,
+        const std::tuple<int, int, int, int> &y) {
+      return (std::get<1>(x) == std::get<1>(y)
+          && std::get<2>(x) == std::get<2>(y)
+          && std::get<3>(x) == std::get<3>(y));
+    };
+    while (!cmp_equal(tmp_vec[0], tmp_vec[last])) {
+      tmp_vec.pop_back();
+      --last;
+    }
+    for (auto item : tmp_vec) {
+      int store_gpu = std::get<0>(item);
+      store_parts[store_gpu].insert(need_part);
+      for (auto neighbor : neighbor_adjacency[store_gpu]) {
+        can_access_parts[neighbor].insert(need_part);
+      }
+      solver_recursive(current_gpu, n_gpu,
+          access_current_id + 1, can_not_access_parts,
+          store_parts, can_access_parts,
+          result, min_max_bandwidth,
+          parts_universal_set,
+          neighbor_adjacency, bandwidth_matrix);
+      // recover
+      store_parts[store_gpu].erase(store_parts[store_gpu].find(need_part));
+      for (auto neighbor : neighbor_adjacency[store_gpu]) {
+        can_access_parts[neighbor].erase(
+            can_access_parts[neighbor].find(need_part));
+      }
+    }
+  } else {
+    can_not_access_parts.clear();
+    solver_recursive(current_gpu + 1, n_gpu, 0, can_not_access_parts,
+        store_parts, can_access_parts,
+        result, min_max_bandwidth,
+        parts_universal_set, neighbor_adjacency,
+        bandwidth_matrix);
+  }
+
 }
 
-DistArray::~DistArray() {
-  for (size_t i = 0; i < CommSize(); i++) {
-    if (i != Rank()) {
-      CUDA_CALL(cudaIpcCloseMemHandle(_devptrs_h[i]));
-    }
-  }
-  CUDA_CALL(cudaFree(_devptrs_d));
-  CUDA_CALL(cudaFreeHost(_devptrs_h));
-  _devptrs_d = nullptr;
-  _devptrs_h = nullptr;
-}
-*/
+}; // namespace
 
 std::shared_ptr<DistGraph> DistGraph::_inst = nullptr;
 
@@ -485,6 +455,47 @@ DeviceDistFeature DistGraph::DeviceFeatureHandle() const {
 }
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
+#if 0
+  _group_configs.clear();
+  _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(1), {2, 3},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(2), {4, 5},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(3), {6, 7},
+      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+
+  _group_configs.emplace_back(GroupConfig(GPU(4), {0, 1},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(5), {2, 3},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(6), {4, 5},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(7), {6, 7},
+      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+#else
+  /*
+  _group_configs.clear();
+  _group_configs.emplace_back(GroupConfig(GPU(0), {0, 4},
+      {GPU(0), GPU(6), GPU(2), GPU(3), GPU(0), GPU(1), GPU(6), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(1), {1, 5},
+      {GPU(7), GPU(1), GPU(2), GPU(3), GPU(0), GPU(1), GPU(2), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(2), {2, 6},
+      {GPU(0), GPU(1), GPU(2), GPU(3), GPU(4), GPU(1), GPU(2), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(3), {3, 7},
+      {GPU(0), GPU(1), GPU(2), GPU(3), GPU(0), GPU(5), GPU(2), GPU(3)}));
+
+  _group_configs.emplace_back(GroupConfig(GPU(4), {4, 3},
+      {GPU(7), GPU(6), GPU(5), GPU(4), GPU(4), GPU(5), GPU(2), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(5), {5, 2},
+      {GPU(7), GPU(6), GPU(5), GPU(4), GPU(4), GPU(5), GPU(6), GPU(3)}));
+  _group_configs.emplace_back(GroupConfig(GPU(6), {6, 1},
+      {GPU(0), GPU(6), GPU(5), GPU(4), GPU(0), GPU(5), GPU(6), GPU(7)}));
+  _group_configs.emplace_back(GroupConfig(GPU(7), {7, 0},
+      {GPU(7), GPU(1), GPU(5), GPU(4), GPU(4), GPU(1), GPU(6), GPU(7)}));
+  */
+
   if (RunConfig::dist_graph_part_cpu < 1) {
     PartitionSolver solver(ctxes);
     _group_configs = solver.solve();
@@ -507,8 +518,10 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
       _group_configs.emplace_back(ctx, part_ids, ctx_group);
     }
   }
+#endif
   for (auto &config : _group_configs) {
-    LOG(INFO) << config;
+    // LOG(INFO) << config;
+    std::cout << config << std::endl;
   }
 
   int num_worker = ctxes.size();
@@ -625,11 +638,9 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
 
   std::vector<std::vector<int>> access_count(
       num_ctx, std::vector<int>(num_ctx, 0));
-  std::vector<std::vector<int>> access_part_ctx(
-      num_ctx, std::vector<int>(num_ctx, -1));
   std::vector<std::set<int>> store_parts(num_ctx);
 
-  std::vector<std::set<int>> can_access_parts(num_ctx);
+  std::vector<std::multiset<int>> can_access_parts(num_ctx);
   // from bandwidth matrix
   std::vector<std::set<int>> neighbor_adjacency(num_ctx);
   std::set<int> parts_universal_set;
@@ -643,107 +654,28 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
         neighbor_adjacency[i].insert(j);
       }
     }
-    asc_degree_gpu_order[i] = std::make_tuple(
-        i, static_cast<int>(neighbor_adjacency[i].size()));
   }
-  // sort nodes by ascending order to iterate
-  std::sort(asc_degree_gpu_order.begin(), asc_degree_gpu_order.end(),
-      [](auto x, auto y) {
-        if (std::get<1>(x) != std::get<1>(y)) {
-          return std::get<1>(x) < std::get<1>(y);
-        }
-        return std::get<0>(x) < std::get<0>(y);
-      });
-  std::stringstream ss;
-  for (auto item : asc_degree_gpu_order) {
-    ss << std::get<0>(item) << " ";
-  }
-  LOG(INFO) << "new node order to iterate: " << ss.str();
-  // iterator for each GPU ctx
-  for (auto item : asc_degree_gpu_order) {
-    int i = std::get<0>(item);
-    // get can not access parts for GPU i
-    std::vector<int> can_not_access_parts =
-      (parts_universal_set - can_access_parts[i]);
-    // sort it by default degree
-    std::sort(can_not_access_parts.begin(), can_not_access_parts.end(),
-        [&neighbor_adjacency](auto x, auto y) {
-          if (neighbor_adjacency[x].size() != neighbor_adjacency[y].size()) {
-            return neighbor_adjacency[x].size() < neighbor_adjacency[y].size();
-          }
-          return x < y;
-        });
-    for (auto need_part : can_not_access_parts) {
-      // id, stored_parts_size, need_score, if_same_part_in_neighbors, bandwidth
-      std::vector<std::tuple<int, int, int, int, double>> tmp_vec;
-      // iterate GPU_i neighbors
-      for(auto j : neighbor_adjacency[i]) {
-        int need_score = 0;
-        for (auto k : neighbor_adjacency[j]) {
-          if(!can_access_parts[k].count(need_part)) {
-            ++need_score;
-          }
-        }
-        tmp_vec.emplace_back(j, store_parts[j].size(), need_score,
-            can_access_parts[j].count(need_part),
-            bandwidth_matrix[i][j] / (access_count[i][j] + 1));
-      }
-      std::sort(tmp_vec.begin(), tmp_vec.end(), [](auto x, auto y){
-            // stored_parts_size
-            if (std::get<1>(x) != std::get<1>(y)) {
-              return std::get<1>(x) < std::get<1>(y);
-            }
-            // need_score
-            if (std::get<2>(x) != std::get<2>(y)) {
-              return std::get<2>(x) > std::get<2>(y);
-            }
-            // if_same_part_in_neighbors 0 or 1
-            if (std::get<3>(x) != std::get<3>(y)) {
-              return std::get<3>(x) < std::get<3>(y);
-            }
-            // bandwidth
-            if (std::get<4>(x) != std::get<4>(y)) {
-              return std::get<4>(x) > std::get<4>(y);
-            }
-            return std::get<0>(x) < std::get<0>(y);
-          });
-      int choose_gpu_id = std::get<0>(tmp_vec.front());
-      store_parts[choose_gpu_id].insert(need_part);
-      // update can access parts for choose_gpu_id neighbors
-      for (auto neighbor : neighbor_adjacency[choose_gpu_id]) {
-        can_access_parts[neighbor].insert(need_part);
-      }
-    }
-    // choose part in which GPU to access
-    assert(can_access_parts[i].size() == num_ctx);
-    for (int j = 0; j < num_ctx; ++j) {
-      int which_gpu;
-      double max_bandwidth = 0.0;
-      for(auto neighbor : neighbor_adjacency[i]) {
-        if (store_parts[neighbor].count(j)) {
-          double tmp_bandwidth =
-            bandwidth_matrix[i][neighbor] / (access_count[i][neighbor] + 1);
-          if (tmp_bandwidth > max_bandwidth) {
-            max_bandwidth = tmp_bandwidth;
-            which_gpu = neighbor;
-          }
-        }
-      }
-      access_part_ctx[i][j] = which_gpu;
-      access_count[i][which_gpu] += 1;
-    }
-  }
+  ResultType result;
+  double max_avg_bandwidth = std::numeric_limits<double>::max();
+  solver_recursive(0, num_ctx, 0, {},
+      store_parts, can_access_parts,
+      result, max_avg_bandwidth,
+      parts_universal_set, neighbor_adjacency,
+      bandwidth_matrix);
 
   std::vector<DistGraph::GroupConfig> configs;
   for (int i = 0; i < num_ctx; i++) {
     auto ctx = _ctxes[i];
     IdType device = ctx.device_id;
     CHECK_EQ(i, device);
-    std::vector<IdType> part_ids(store_parts[device].begin(),
-        store_parts[device].end());
+    std::vector<IdType> part_ids(std::get<0>(result[device]).begin(),
+        std::get<0>(result[device]).end());
     std::vector<Context> ctx_group(num_ctx);
-    for (int j = 0; j < num_ctx; ++j) {
-      ctx_group[j] = GPU(access_part_ctx[device][j]);
+    {
+      int j = 0;
+      for (auto gpu_id : std::get<1>(result[device])) {
+        ctx_group[j++] = GPU(gpu_id);
+      }
     }
     configs.emplace_back(ctx, part_ids, ctx_group);
   }
