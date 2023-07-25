@@ -212,8 +212,6 @@ void Solver::Solve(int n_gpu,
 
   std::vector<std::vector<int>> access_count(
       _num_ctx, std::vector<int>(_num_ctx, 0));
-  std::vector<std::vector<int>> access_part_ctx(
-      _num_ctx, std::vector<int>(_num_ctx, -1));
   std::vector<std::set<int>> store_parts(_num_ctx);
 
   std::vector<std::multiset<int>> can_access_parts(_num_ctx);
@@ -228,9 +226,6 @@ void Solver::Solve(int n_gpu,
         can_access_parts[i].insert(j);
         neighbor_adjacency[i].insert(j);
       }
-    }
-    if (i > 0 && (neighbor_adjacency[i].size() < neighbor_adjacency[i - 1].size())) {
-      return;
     }
   }
   ResultType result;
