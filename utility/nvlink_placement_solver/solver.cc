@@ -5,7 +5,10 @@
 #include <fstream>
 #include <cassert>
 #include <algorithm>
+#include <limits>
 #include <tuple>
+
+#include "timer.h"
 
 // #define DEBUG
 
@@ -34,11 +37,6 @@ std::vector<T> operator- (const std::set<T> &a, const std::multiset<T> &b) {
 
 namespace {
 
-int num_result = 0;
-std::set<std::string> check_set;
-
-using ResultType = std::vector<std::set<int>>;
-
 void search_access_config(int gpu,
     int part_id,
     int n_part,
@@ -48,12 +46,26 @@ void search_access_config(int gpu,
     const std::vector<std::set<int>> &part_gpu_map,
     const std::vector<std::vector<double>> &bandwidth_matrix) {
   if (part_id == n_part) {
-    // TODO: pick the minimal bandwidth config
-    std::cout << "-> ";
+    double max_bandwidth = 0.0;
+    const std::vector<double> &bandwidth_list = bandwidth_matrix[gpu];
+    int n_gpu = bandwidth_list.size();
+    std::vector<int> access_cnt(n_gpu, 0);
     for (auto gpu_i : access_config) {
-      std::cout << gpu_i << " ";
+      access_cnt[gpu_i] += 1;
     }
-    std::cout << std::endl;
+    for (int i = 0; i < n_gpu; ++i) {
+      if (access_cnt[i]
+          && (
+            static_cast<double>(access_cnt[i]) / bandwidth_list[i]
+            > max_bandwidth
+          )) {
+        max_bandwidth = static_cast<double>(access_cnt[i]) / bandwidth_list[i];
+      }
+    }
+    if (max_bandwidth < min_bandwidth) {
+      min_bandwidth = max_bandwidth;
+      result = access_config;
+    }
     return;
   }
   for (auto gpu_j : part_gpu_map[part_id]) {
@@ -65,6 +77,10 @@ void search_access_config(int gpu,
   }
 }
 
+int num_result = 0;
+
+using ResultType = std::vector<std::tuple<std::set<int>, std::vector<int>>>;
+
 void solver_recursive(int current_gpu,
     int n_gpu,
     int access_current_id,
@@ -72,14 +88,17 @@ void solver_recursive(int current_gpu,
     std::vector<std::set<int>> &store_parts,
     std::vector<std::multiset<int>> &can_access_parts,
     ResultType &result,
-    double &max_avg_bandwidth,
+    double &min_max_bandwidth,
     const std::set<int> &parts_universal_set,
     const std::vector<std::set<int>> &neighbor_adjacency,
     const std::vector<std::vector<double>> &bandwidth_matrix) {
 
   // stop condition
   if (current_gpu == n_gpu) {
+    std::vector<std::vector<int>> access_config_list;
+    double max_bandwidth = 0.0;
     for (int gpu = 0; gpu < store_parts.size(); ++gpu) {
+      // std::cout << "gpu: " << gpu << std::endl;
       std::vector<std::set<int>> part_gpu_map(n_gpu);
       for (auto neighbor : neighbor_adjacency[gpu]) {
         for (auto store_part : store_parts[neighbor]) {
@@ -91,24 +110,20 @@ void solver_recursive(int current_gpu,
       double min_bandwidth = std::numeric_limits<double>::max();
       search_access_config(gpu, 0, n_gpu, access_config, result,
           min_bandwidth, part_gpu_map, bandwidth_matrix);
-    }
-    // TODO: check if store the result
-    // std::cout << "----------- result " << (num_result++)
-    //           << " -----------" << std::endl;
-    std::string s;
-    for (int i = 0; i < store_parts.size(); ++i) {
-      // std::cout << "GPU " << i << ": ";
-      for (auto part_id : store_parts[i]) {
-        // std::cout << part_id << " ";
-        s += ('0' + part_id);
+      if (min_bandwidth > max_bandwidth) {
+        max_bandwidth = min_bandwidth;
       }
+      access_config_list.emplace_back(result);
+      // for (auto gpu_j : result) { std::cout << gpu_j << " "; }
       // std::cout << std::endl;
     }
-    // std::cout << s << std::endl;
-    if (check_set.count(s)) {
-      std::cout << "error!" << std::endl;
+    if (max_bandwidth < min_max_bandwidth) {
+      min_max_bandwidth = max_bandwidth;
+      result.clear();
+      for (int i = 0; i < n_gpu; ++i) {
+        result.emplace_back(store_parts[i], access_config_list[i]);
+      }
     }
-    check_set.insert(s);
     return;
   }
   if (can_not_access_parts.size() == 0) {
@@ -167,7 +182,7 @@ void solver_recursive(int current_gpu,
       solver_recursive(current_gpu, n_gpu,
           access_current_id + 1, can_not_access_parts,
           store_parts, can_access_parts,
-          result, max_avg_bandwidth,
+          result, min_max_bandwidth,
           parts_universal_set,
           neighbor_adjacency, bandwidth_matrix);
       // recover
@@ -181,7 +196,7 @@ void solver_recursive(int current_gpu,
     can_not_access_parts.clear();
     solver_recursive(current_gpu + 1, n_gpu, 0, can_not_access_parts,
         store_parts, can_access_parts,
-        result, max_avg_bandwidth,
+        result, min_max_bandwidth,
         parts_universal_set, neighbor_adjacency,
         bandwidth_matrix);
   }
@@ -218,7 +233,6 @@ void Solver::Solve(int n_gpu,
       return;
     }
   }
-  // TODO: call recursive functions to get all results
   ResultType result;
   double max_avg_bandwidth = std::numeric_limits<double>::max();
   solver_recursive(0, n_gpu, 0, {},
@@ -226,6 +240,17 @@ void Solver::Solve(int n_gpu,
       result, max_avg_bandwidth,
       parts_universal_set, neighbor_adjacency,
       _bandwidth_matrix);
+  for (int i = 0; i < n_gpu; ++i) {
+    std::cout << "gpu " << i << ": [ ";
+    for (auto part_id : std::get<0>(result[i])) {
+      std::cout << part_id << " ";
+    }
+    std::cout << "], [ ";
+    for (auto gpu_id : std::get<1>(result[i])) {
+      std::cout << gpu_id << " ";
+    }
+    std::cout << "]" << std::endl;
+  }
 
 
 
@@ -291,8 +316,11 @@ int main(int argc, char** argv) {
   // map_vec = {0, 1, 3, 5, 4, 2};
   // map_vec = {2, 4, 0, 3, 5, 1};
 
+  Timer t;
   Solver solver;
   solver.Solve(n_gpu, bandwidth_matrix);
+  double solve_time = t.PassedMicro();
+  std::cout << "time cost: " << solve_time << " us." << std::endl;
 
   /*
 #ifdef DEBUG
