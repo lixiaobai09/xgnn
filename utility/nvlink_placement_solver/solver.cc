@@ -35,6 +35,35 @@ std::vector<T> operator- (const std::set<T> &a, const std::multiset<T> &b) {
 namespace {
 
 int num_result = 0;
+std::set<std::string> check_set;
+
+using ResultType = std::vector<std::set<int>>;
+
+void search_access_config(int gpu,
+    int part_id,
+    int n_part,
+    std::vector<int> &access_config,
+    std::vector<int> &result,
+    double &min_bandwidth,
+    const std::vector<std::set<int>> &part_gpu_map,
+    const std::vector<std::vector<double>> &bandwidth_matrix) {
+  if (part_id == n_part) {
+    // TODO: pick the minimal bandwidth config
+    std::cout << "-> ";
+    for (auto gpu_i : access_config) {
+      std::cout << gpu_i << " ";
+    }
+    std::cout << std::endl;
+    return;
+  }
+  for (auto gpu_j : part_gpu_map[part_id]) {
+    access_config.emplace_back(gpu_j);
+    search_access_config(gpu, part_id + 1, n_part,
+        access_config, result, min_bandwidth,
+        part_gpu_map, bandwidth_matrix);
+    access_config.pop_back();
+  }
+}
 
 void solver_recursive(int current_gpu,
     int n_gpu,
@@ -42,21 +71,44 @@ void solver_recursive(int current_gpu,
     std::vector<int> can_not_access_parts,
     std::vector<std::set<int>> &store_parts,
     std::vector<std::multiset<int>> &can_access_parts,
+    ResultType &result,
+    double &max_avg_bandwidth,
     const std::set<int> &parts_universal_set,
-    const std::vector<std::set<int>> &neighbor_adjacency) {
+    const std::vector<std::set<int>> &neighbor_adjacency,
+    const std::vector<std::vector<double>> &bandwidth_matrix) {
 
   // stop condition
   if (current_gpu == n_gpu) {
-    // TODO: check if store the result
-    std::cout << "----------- result " << (num_result++)
-              << " -----------" << std::endl;
-    for (int i = 0; i < store_parts.size(); ++i) {
-      std::cout << "GPU " << i << ": ";
-      for (auto part_id : store_parts[i]) {
-        std::cout << part_id << " ";
+    for (int gpu = 0; gpu < store_parts.size(); ++gpu) {
+      std::vector<std::set<int>> part_gpu_map(n_gpu);
+      for (auto neighbor : neighbor_adjacency[gpu]) {
+        for (auto store_part : store_parts[neighbor]) {
+          part_gpu_map[store_part].insert(neighbor);
+        }
       }
-      std::cout << std::endl;
+      std::vector<int> access_config;
+      std::vector<int> result;
+      double min_bandwidth = std::numeric_limits<double>::max();
+      search_access_config(gpu, 0, n_gpu, access_config, result,
+          min_bandwidth, part_gpu_map, bandwidth_matrix);
     }
+    // TODO: check if store the result
+    // std::cout << "----------- result " << (num_result++)
+    //           << " -----------" << std::endl;
+    std::string s;
+    for (int i = 0; i < store_parts.size(); ++i) {
+      // std::cout << "GPU " << i << ": ";
+      for (auto part_id : store_parts[i]) {
+        // std::cout << part_id << " ";
+        s += ('0' + part_id);
+      }
+      // std::cout << std::endl;
+    }
+    // std::cout << s << std::endl;
+    if (check_set.count(s)) {
+      std::cout << "error!" << std::endl;
+    }
+    check_set.insert(s);
     return;
   }
   if (can_not_access_parts.size() == 0) {
@@ -114,8 +166,10 @@ void solver_recursive(int current_gpu,
       }
       solver_recursive(current_gpu, n_gpu,
           access_current_id + 1, can_not_access_parts,
-          store_parts, can_access_parts, parts_universal_set,
-          neighbor_adjacency);
+          store_parts, can_access_parts,
+          result, max_avg_bandwidth,
+          parts_universal_set,
+          neighbor_adjacency, bandwidth_matrix);
       // recover
       store_parts[store_gpu].erase(store_parts[store_gpu].find(need_part));
       for (auto neighbor : neighbor_adjacency[store_gpu]) {
@@ -126,7 +180,10 @@ void solver_recursive(int current_gpu,
   } else {
     can_not_access_parts.clear();
     solver_recursive(current_gpu + 1, n_gpu, 0, can_not_access_parts,
-        store_parts, can_access_parts, parts_universal_set, neighbor_adjacency);
+        store_parts, can_access_parts,
+        result, max_avg_bandwidth,
+        parts_universal_set, neighbor_adjacency,
+        bandwidth_matrix);
   }
 
 }
@@ -162,8 +219,13 @@ void Solver::Solve(int n_gpu,
     }
   }
   // TODO: call recursive functions to get all results
+  ResultType result;
+  double max_avg_bandwidth = std::numeric_limits<double>::max();
   solver_recursive(0, n_gpu, 0, {},
-      store_parts, can_access_parts, parts_universal_set, neighbor_adjacency);
+      store_parts, can_access_parts,
+      result, max_avg_bandwidth,
+      parts_universal_set, neighbor_adjacency,
+      _bandwidth_matrix);
 
 
 
