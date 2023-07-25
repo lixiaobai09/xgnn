@@ -77,8 +77,6 @@ void search_access_config(int gpu,
   }
 }
 
-int num_result = 0;
-
 using ResultType = std::vector<std::tuple<std::set<int>, std::vector<int>>>;
 
 void solver_recursive(int current_gpu,
