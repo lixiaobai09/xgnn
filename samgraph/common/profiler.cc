@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -486,7 +486,7 @@ void Profiler::OutputStep(uint64_t key, std::string type) {
         type.c_str(), epoch, step, _step_buf[kLogL2ShuffleTime],
         _step_buf[kLogL2CoreSampleTime], _step_buf[kLogL2IdRemapTime],
         _step_buf[kLogL2GraphCopyTime], _step_buf[kLogL2IdCopyTime],
-        _step_buf[kLogL2CacheCopyTime],
+        _step_buf[kLogL2FeatCopyTime],
         _step_buf[kLogL2LastLayerTime], _step_buf[kLogL2LastLayerSize]);
   }
 
@@ -642,8 +642,8 @@ void Profiler::LogNodeAccess(uint64_t key, const IdType *input,
       }
     }
     _epoch_similarity[Engine::Get()->GetEpochFromKey(key)] = e_min_freq_both_e_top_K/(double)total_cur_e_top_K_freq*100;
-    LOG(WARNING) << "top K min freq is both epoch's topK 10%: " 
-                 << e_min_freq_both_e_top_K << "/" 
+    LOG(WARNING) << "top K min freq is both epoch's topK 10%: "
+                 << e_min_freq_both_e_top_K << "/"
                  << total_cur_e_top_K_freq << "="
                  << e_min_freq_both_e_top_K/(double)total_cur_e_top_K_freq*100;
     // clean up
