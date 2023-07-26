@@ -87,6 +87,7 @@ void solver_recursive(int current_gpu,
     std::vector<std::multiset<int>> &can_access_parts,
     ResultType &result,
     double &min_max_bandwidth,
+    int &global_min_parts,
     const std::set<int> &parts_universal_set,
     const std::vector<std::set<int>> &neighbor_adjacency,
     const double bandwidth_matrix[][kMaxDevice]) {
@@ -95,6 +96,19 @@ void solver_recursive(int current_gpu,
   if (current_gpu == n_gpu) {
     std::vector<std::vector<int>> access_config_list;
     double max_bandwidth = 0.0;
+    int max_parts = 0;
+    for (int gpu = 0; gpu < store_parts.size(); ++gpu) {
+      if (store_parts[gpu].size() > max_parts) {
+        max_parts = store_parts[gpu].size();
+      }
+    }
+    if (max_parts > global_min_parts) {
+      return;
+    }
+    if (max_parts < global_min_parts) {
+      min_max_bandwidth = std::numeric_limits<double>::max();
+      global_min_parts = max_parts;
+    }
     for (int gpu = 0; gpu < store_parts.size(); ++gpu) {
       // std::cout << "gpu: " << gpu << std::endl;
       std::vector<std::set<int>> part_gpu_map(n_gpu);
@@ -180,7 +194,7 @@ void solver_recursive(int current_gpu,
       solver_recursive(current_gpu, n_gpu,
           access_current_id + 1, can_not_access_parts,
           store_parts, can_access_parts,
-          result, min_max_bandwidth,
+          result, min_max_bandwidth, global_min_parts,
           parts_universal_set,
           neighbor_adjacency, bandwidth_matrix);
       // recover
@@ -194,7 +208,7 @@ void solver_recursive(int current_gpu,
     can_not_access_parts.clear();
     solver_recursive(current_gpu + 1, n_gpu, 0, can_not_access_parts,
         store_parts, can_access_parts,
-        result, min_max_bandwidth,
+        result, min_max_bandwidth, global_min_parts,
         parts_universal_set, neighbor_adjacency,
         bandwidth_matrix);
   }
@@ -656,9 +670,10 @@ std::vector<DistGraph::GroupConfig> PartitionSolver::solve() const  {
   }
   ResultType result;
   double max_avg_bandwidth = std::numeric_limits<double>::max();
+  int global_min_parts = std::numeric_limits<int>::max();
   solver_recursive(0, num_ctx, 0, {},
       store_parts, can_access_parts,
-      result, max_avg_bandwidth,
+      result, max_avg_bandwidth, global_min_parts,
       parts_universal_set, neighbor_adjacency,
       bandwidth_matrix);
 
