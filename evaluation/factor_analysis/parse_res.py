@@ -60,12 +60,12 @@ if __name__ == '__main__':
     arguments   = parse_args()
     directory   = arguments['directory']
     print("model\tdataset\tmethod\tsample_time\ttrain_time")
-    opt_methods = ["naive", "P_{graph}", "P_{cache}", "S_{opt}"]
+    opt_methods = ["BASE", "+MSG", "+MSF", "+OGA", "+PSA"]
     for dataset in dataset_list:
         prefix_str = f"xgnn_graphsage_{dataset}_"
         if (dataset in ["tw", "pa"]):
             prefix_str = f"xgnn_gcn_{dataset}_"
-        for i in range(1, 5):
+        for i in range(1, 6):
             file_name = directory + "/" + prefix_str + str(i) + ".log"
             # print("file_name: ", file_name)
             if (dataset in ["tw", "pa"]):
