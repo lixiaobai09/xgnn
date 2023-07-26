@@ -5,7 +5,10 @@
 #include <fstream>
 #include <cassert>
 #include <algorithm>
+#include <limits>
 #include <tuple>
+
+#include "timer.h"
 
 // #define DEBUG
 
@@ -22,15 +25,183 @@ class Solver {
 };
 
 template<typename T>
-std::set<T> operator- (const std::set<T> &a, const std::set<T> &b) {
-  std::set<T> ret;
+std::vector<T> operator- (const std::set<T> &a, const std::multiset<T> &b) {
+  std::vector<T> ret;
   for (auto i : a) {
     if (!b.count(i)) {
-      ret.insert(i);
+      ret.emplace_back(i);
     }
   }
   return std::move(ret);
 };
+
+namespace {
+
+void search_access_config(int gpu,
+    int part_id,
+    int n_part,
+    std::vector<int> &access_config,
+    std::vector<int> &result,
+    double &min_bandwidth,
+    const std::vector<std::set<int>> &part_gpu_map,
+    const std::vector<std::vector<double>> &bandwidth_matrix) {
+  if (part_id == n_part) {
+    double max_bandwidth = 0.0;
+    const std::vector<double> &bandwidth_list = bandwidth_matrix[gpu];
+    int n_gpu = bandwidth_list.size();
+    std::vector<int> access_cnt(n_gpu, 0);
+    for (auto gpu_i : access_config) {
+      access_cnt[gpu_i] += 1;
+    }
+    for (int i = 0; i < n_gpu; ++i) {
+      if (access_cnt[i]
+          && (
+            static_cast<double>(access_cnt[i]) / bandwidth_list[i]
+            > max_bandwidth
+          )) {
+        max_bandwidth = static_cast<double>(access_cnt[i]) / bandwidth_list[i];
+      }
+    }
+    if (max_bandwidth < min_bandwidth) {
+      min_bandwidth = max_bandwidth;
+      result = access_config;
+    }
+    return;
+  }
+  for (auto gpu_j : part_gpu_map[part_id]) {
+    access_config.emplace_back(gpu_j);
+    search_access_config(gpu, part_id + 1, n_part,
+        access_config, result, min_bandwidth,
+        part_gpu_map, bandwidth_matrix);
+    access_config.pop_back();
+  }
+}
+
+using ResultType = std::vector<std::tuple<std::set<int>, std::vector<int>>>;
+
+void solver_recursive(int current_gpu,
+    int n_gpu,
+    int access_current_id,
+    std::vector<int> can_not_access_parts,
+    std::vector<std::set<int>> &store_parts,
+    std::vector<std::multiset<int>> &can_access_parts,
+    ResultType &result,
+    double &min_max_bandwidth,
+    const std::set<int> &parts_universal_set,
+    const std::vector<std::set<int>> &neighbor_adjacency,
+    const std::vector<std::vector<double>> &bandwidth_matrix) {
+
+  // stop condition
+  if (current_gpu == n_gpu) {
+    std::vector<std::vector<int>> access_config_list;
+    double max_bandwidth = 0.0;
+    for (int gpu = 0; gpu < store_parts.size(); ++gpu) {
+      // std::cout << "gpu: " << gpu << std::endl;
+      std::vector<std::set<int>> part_gpu_map(n_gpu);
+      for (auto neighbor : neighbor_adjacency[gpu]) {
+        for (auto store_part : store_parts[neighbor]) {
+          part_gpu_map[store_part].insert(neighbor);
+        }
+      }
+      std::vector<int> access_config;
+      std::vector<int> result;
+      double min_bandwidth = std::numeric_limits<double>::max();
+      search_access_config(gpu, 0, n_gpu, access_config, result,
+          min_bandwidth, part_gpu_map, bandwidth_matrix);
+      if (min_bandwidth > max_bandwidth) {
+        max_bandwidth = min_bandwidth;
+      }
+      access_config_list.emplace_back(result);
+      // for (auto gpu_j : result) { std::cout << gpu_j << " "; }
+      // std::cout << std::endl;
+    }
+    if (max_bandwidth < min_max_bandwidth) {
+      min_max_bandwidth = max_bandwidth;
+      result.clear();
+      for (int i = 0; i < n_gpu; ++i) {
+        result.emplace_back(store_parts[i], access_config_list[i]);
+      }
+    }
+    return;
+  }
+  if (can_not_access_parts.size() == 0) {
+    // get can not access parts for GPU i
+    can_not_access_parts =
+      (parts_universal_set - can_access_parts[current_gpu]);
+    access_current_id = 0;
+  }
+  if (access_current_id < can_not_access_parts.size()) {
+    int need_part = can_not_access_parts[access_current_id];
+    // id, stored_parts_size, need_score, if_same_part_in_neighbors
+    std::vector<std::tuple<int, int, int, int>> tmp_vec;
+    for (auto j : neighbor_adjacency[current_gpu]) {
+      int need_score = 0;
+      for (auto k : neighbor_adjacency[j]) {
+        if (!can_access_parts[k].count(need_part)) {
+          ++need_score;
+        }
+      }
+      tmp_vec.emplace_back(j, store_parts[j].size(), need_score,
+          // XXX: if need this?
+          (can_access_parts[j].count(need_part) == 0? 0 : 1));
+    }
+    std::sort(tmp_vec.begin(), tmp_vec.end(), [](auto x, auto y){
+          // stored_parts_size
+          if (std::get<1>(x) != std::get<1>(y)) {
+            return std::get<1>(x) < std::get<1>(y);
+          }
+          // need_score
+          if (std::get<2>(x) != std::get<2>(y)) {
+            return std::get<2>(x) > std::get<2>(y);
+          }
+          // if_same_part_in_neighbors 0 or 1
+          if (std::get<3>(x) != std::get<3>(y)) {
+            return std::get<3>(x) < std::get<3>(y);
+          }
+          return std::get<0>(x) < std::get<0>(y);
+        });
+    int last = (tmp_vec.size() - 1);
+    auto cmp_equal = [](const std::tuple<int, int, int, int> &x,
+        const std::tuple<int, int, int, int> &y) {
+      return (std::get<1>(x) == std::get<1>(y)
+          && std::get<2>(x) == std::get<2>(y)
+          && std::get<3>(x) == std::get<3>(y));
+    };
+    while (!cmp_equal(tmp_vec[0], tmp_vec[last])) {
+      tmp_vec.pop_back();
+      --last;
+    }
+    for (auto item : tmp_vec) {
+      int store_gpu = std::get<0>(item);
+      store_parts[store_gpu].insert(need_part);
+      for (auto neighbor : neighbor_adjacency[store_gpu]) {
+        can_access_parts[neighbor].insert(need_part);
+      }
+      solver_recursive(current_gpu, n_gpu,
+          access_current_id + 1, can_not_access_parts,
+          store_parts, can_access_parts,
+          result, min_max_bandwidth,
+          parts_universal_set,
+          neighbor_adjacency, bandwidth_matrix);
+      // recover
+      store_parts[store_gpu].erase(store_parts[store_gpu].find(need_part));
+      for (auto neighbor : neighbor_adjacency[store_gpu]) {
+        can_access_parts[neighbor].erase(
+            can_access_parts[neighbor].find(need_part));
+      }
+    }
+  } else {
+    can_not_access_parts.clear();
+    solver_recursive(current_gpu + 1, n_gpu, 0, can_not_access_parts,
+        store_parts, can_access_parts,
+        result, min_max_bandwidth,
+        parts_universal_set, neighbor_adjacency,
+        bandwidth_matrix);
+  }
+
+}
+
+} // namespace
 
 void Solver::Solve(int n_gpu,
     const std::vector<std::vector<double>> &matrix_input) {
@@ -39,11 +210,9 @@ void Solver::Solve(int n_gpu,
 
   std::vector<std::vector<int>> access_count(
       _num_ctx, std::vector<int>(_num_ctx, 0));
-  std::vector<std::vector<int>> access_part_ctx(
-      _num_ctx, std::vector<int>(_num_ctx, -1));
   std::vector<std::set<int>> store_parts(_num_ctx);
 
-  std::vector<std::set<int>> can_access_parts(_num_ctx);
+  std::vector<std::multiset<int>> can_access_parts(_num_ctx);
   // from bandwith matrix
   std::vector<std::set<int>> neighbor_adjacency(_num_ctx);
   std::set<int> parts_universal_set;
@@ -56,134 +225,28 @@ void Solver::Solve(int n_gpu,
         neighbor_adjacency[i].insert(j);
       }
     }
-    if (i > 0 && (neighbor_adjacency[i].size() < neighbor_adjacency[i - 1].size())) {
-      return;
-    }
   }
-  // iterator for each GPU ctx
-  for (int i = 0; i < _num_ctx; ++i) {
-    // get can not access parts for GPU i
-    auto can_not_access_parts = (parts_universal_set - can_access_parts[i]);
-    for (auto need_part : can_not_access_parts) {
-      // id, stored_parts_size, need_score, if_same_part_in_neighbors, bandwith
-      std::vector<std::tuple<int, int, int, int, double>> tmp_vec;
-      const std::vector<double> &neighbor_bandwidth = _bandwidth_matrix[i];
-      // iterate GPU_i neighbors
-      for(auto j : neighbor_adjacency[i]) {
-        int need_score = 0;
-        for (auto k : neighbor_adjacency[j]) {
-          if(!can_access_parts[k].count(need_part)) {
-            ++need_score;
-          }
-        }
-        tmp_vec.emplace_back(j, store_parts[j].size(), need_score,
-            can_access_parts[j].count(need_part),
-            _bandwidth_matrix[i][j] / (access_count[i][j] + 1));
-            // 1.0d * need_score / neighbor_adjacency[j].size());
-        // std::cout << "need_score: " << need_score << std::endl;
-        // std::cout << i << ": P_" << need_part << " in G_" << j << " = "
-        //   << std::fixed << std::setprecision(2) << std::get<5>(tmp_vec.back())
-        //   << std::endl;
-      }
-      std::sort(tmp_vec.begin(), tmp_vec.end(), [](auto x, auto y){
-            // stored_parts_size
-            if (std::get<1>(x) != std::get<1>(y)) {
-              return std::get<1>(x) < std::get<1>(y);
-            }
-            // need_score
-            if (std::get<2>(x) != std::get<2>(y)) {
-              return std::get<2>(x) > std::get<2>(y);
-            }
-            /*
-            if (std::get<5>(x) != std::get<5>(y)) {
-              return std::get<5>(x) > std::get<5>(y);
-            }
-            */
-            // if_same_part_in_neighbors 0 or 1
-            if (std::get<3>(x) != std::get<3>(y)) {
-              return std::get<3>(x) < std::get<3>(y);
-            }
-            // bandwith
-            if (std::get<4>(x) != std::get<4>(y)) {
-              return std::get<4>(x) > std::get<4>(y);
-            }
-            return std::get<0>(x) < std::get<0>(y);
-          });
-      int choose_gpu_id = std::get<0>(tmp_vec.front());
-      // std::cout << "choose: GPU_" << i << " save P_" << need_part << " in G_"
-      //   << choose_gpu_id << std::endl;
-      store_parts[choose_gpu_id].insert(need_part);
-      // update can access parts for choose_gpu_id neighbors
-      for (auto neighbor : neighbor_adjacency[choose_gpu_id]) {
-        can_access_parts[neighbor].insert(need_part);
-      }
-    }
-    // choose part in which GPU to access
-    assert(can_access_parts[i].size() == _num_ctx);
-    for (int j = 0; j < _num_ctx; ++j) {
-      int which_gpu;
-      double max_bandwith = 0.0;
-      for(auto neighbor : neighbor_adjacency[i]) {
-        if (store_parts[neighbor].count(j)) {
-          double tmp_bandwith =
-            _bandwidth_matrix[i][neighbor] / (access_count[i][neighbor] + 1);
-          if (tmp_bandwith > max_bandwith) {
-            max_bandwith = tmp_bandwith;
-            which_gpu = neighbor;
-          }
-        }
-      }
-      access_part_ctx[i][j] = which_gpu;
-      access_count[i][which_gpu] += 1;
-    }
-  }
-
-#ifdef DEBUG
-  for (int i = 0; i < _num_ctx; ++i) {
-    assert(can_access_parts[i].size() == _num_ctx);
-    std::cout << i << ", [ ";
-    for (auto j : store_parts[i]) {
-      std::cout << j << " ";
+  ResultType result;
+  double max_avg_bandwidth = std::numeric_limits<double>::max();
+  solver_recursive(0, n_gpu, 0, {},
+      store_parts, can_access_parts,
+      result, max_avg_bandwidth,
+      parts_universal_set, neighbor_adjacency,
+      _bandwidth_matrix);
+  for (int i = 0; i < n_gpu; ++i) {
+    std::cout << "gpu " << i << ": [ ";
+    for (auto part_id : std::get<0>(result[i])) {
+      std::cout << part_id << " ";
     }
     std::cout << "], [ ";
-    for (auto j : access_part_ctx[i]) {
-      std::cout << j << " ";
+    for (auto gpu_id : std::get<1>(result[i])) {
+      std::cout << gpu_id << " ";
     }
     std::cout << "]" << std::endl;
   }
 
-  std::cout << "---- access matrix ----" << std::endl;
-  for (int i = 0; i < _num_ctx; ++i) {
-    for (int j = 0; j < _num_ctx; ++j) {
-      std::cout << access_count[i][j] << " ";
-    }
-    std::cout << std::endl;
-  }
-#endif
 
-  for (int i = 0; i < _num_ctx; ++i) {
-    for (int j = 0; j < _num_ctx; ++j) {
-      auto group_ctx_id = access_part_ctx[i][j];
-      if (!store_parts[group_ctx_id].count(j)) {
-        std::cout << "\033[31mERROR\033[0m " << i << " can not access part "
-          << j << " in GPU " << group_ctx_id << std::endl;
-      }
-    }
-  }
-  // check access count
-  for(int i = 0; i < _num_ctx; ++i) {
-    if (store_parts[i].size() > check_max_parts) {
-      std::cout << "\033[31mWARN\033[0m too many parts" << std::endl;
-    }
-    /*
-    for (int j = 0; j <=i; ++j) {
-      int tmp_access_count = (access_count[i][j] + access_count[j][i]);
-      if (tmp_access_count == 0 && _bandwidth_matrix[i][j] != 0.0) {
-        std::cout << "\033[31mWARN\033[0m access imbalance" << std::endl;
-      }
-    }
-    */
-  }
+
 }
 
 void PrintBandwithMatrix(
@@ -246,8 +309,13 @@ int main(int argc, char** argv) {
   // map_vec = {0, 1, 3, 5, 4, 2};
   // map_vec = {2, 4, 0, 3, 5, 1};
 
+  Timer t;
   Solver solver;
+  solver.Solve(n_gpu, bandwidth_matrix);
+  double solve_time = t.PassedMicro();
+  std::cout << "time cost: " << solve_time << " us." << std::endl;
 
+  /*
 #ifdef DEBUG
   int t = 10;
 #endif
@@ -272,6 +340,7 @@ int main(int argc, char** argv) {
 #endif
 
   } while(std::next_permutation(map_vec.begin(), map_vec.end()));
+  */
 
   return 0;
 }
