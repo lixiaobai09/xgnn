@@ -469,24 +469,52 @@ DeviceDistFeature DistGraph::DeviceFeatureHandle() const {
 
 DistGraph::DistGraph(std::vector<Context> ctxes) {
 #if 0
-  _group_configs.clear();
-  _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1},
-      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
-  _group_configs.emplace_back(GroupConfig(GPU(1), {2, 3},
-      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
-  _group_configs.emplace_back(GroupConfig(GPU(2), {4, 5},
-      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
-  _group_configs.emplace_back(GroupConfig(GPU(3), {6, 7},
-      {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+  if (ctxes.size() == 4) {
+    PartitionSolver solver(ctxes);
+    auto nvlink_matrix = solver.GetLinkTopoInfo()->nvlink_matrix;
+    if (nvlink_matrix[0][3] == 0) {
+      _group_configs.clear();
+      _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1},
+        {GPU(0), GPU(0), GPU(1), GPU(1)}));
+      _group_configs.emplace_back(GroupConfig(GPU(1), {2, 3},
+        {GPU(0), GPU(0), GPU(1), GPU(1)}));
 
-  _group_configs.emplace_back(GroupConfig(GPU(4), {0, 1},
-      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
-  _group_configs.emplace_back(GroupConfig(GPU(5), {2, 3},
-      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
-  _group_configs.emplace_back(GroupConfig(GPU(6), {4, 5},
-      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
-  _group_configs.emplace_back(GroupConfig(GPU(7), {6, 7},
-      {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+      _group_configs.emplace_back(GroupConfig(GPU(2), {0, 1},
+        {GPU(2), GPU(2), GPU(3), GPU(3)}));
+      _group_configs.emplace_back(GroupConfig(GPU(3), {2, 3},
+        {GPU(2), GPU(2), GPU(3), GPU(3)}));
+    } else {
+      _group_configs.clear();
+      _group_configs.emplace_back(GroupConfig(GPU(0), {0},
+        {GPU(0), GPU(1), GPU(2), GPU(3)}));
+      _group_configs.emplace_back(GroupConfig(GPU(1), {1},
+        {GPU(0), GPU(1), GPU(2), GPU(3)}));
+      _group_configs.emplace_back(GroupConfig(GPU(2), {2},
+        {GPU(0), GPU(1), GPU(2), GPU(3)}));
+      _group_configs.emplace_back(GroupConfig(GPU(3), {3},
+        {GPU(0), GPU(1), GPU(2), GPU(3)}));
+    }
+  }
+  if (ctxes.size() == 8) {
+    _group_configs.clear();
+    _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1},
+        {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+    _group_configs.emplace_back(GroupConfig(GPU(1), {2, 3},
+        {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+    _group_configs.emplace_back(GroupConfig(GPU(2), {4, 5},
+        {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+    _group_configs.emplace_back(GroupConfig(GPU(3), {6, 7},
+        {GPU(0), GPU(0), GPU(1), GPU(1), GPU(2), GPU(2), GPU(3), GPU(3)}));
+
+    _group_configs.emplace_back(GroupConfig(GPU(4), {0, 1},
+        {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+    _group_configs.emplace_back(GroupConfig(GPU(5), {2, 3},
+        {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+    _group_configs.emplace_back(GroupConfig(GPU(6), {4, 5},
+        {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+    _group_configs.emplace_back(GroupConfig(GPU(7), {6, 7},
+        {GPU(4), GPU(4), GPU(5), GPU(5), GPU(6), GPU(6), GPU(7), GPU(7)}));
+  }
 #else
   /*
   _group_configs.clear();
