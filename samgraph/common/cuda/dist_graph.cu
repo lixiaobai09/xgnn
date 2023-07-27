@@ -97,11 +97,17 @@ void solver_recursive(int current_gpu,
     std::vector<std::vector<int>> access_config_list;
     double max_bandwidth = 0.0;
     int max_parts = 0;
+    // std::stringstream ss;
     for (int gpu = 0; gpu < store_parts.size(); ++gpu) {
       if (store_parts[gpu].size() > max_parts) {
         max_parts = store_parts[gpu].size();
       }
+      // for (auto part_id : store_parts[gpu]) {
+      //   ss << part_id;
+      // }
+      // ss << '|';
     }
+    // std::cout << ss.str() << std::endl;
     if (max_parts > global_min_parts) {
       return;
     }
@@ -494,6 +500,28 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
       _group_configs.emplace_back(GroupConfig(GPU(3), {3},
         {GPU(0), GPU(1), GPU(2), GPU(3)}));
     }
+  }
+  if (ctxes.size() == 6) {
+    _group_configs.clear();
+    _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1, 2},
+      {GPU(0), GPU(0), GPU(0), GPU(1), GPU(1), GPU(1),
+       GPU(2), GPU(2), GPU(2), GPU(3), GPU(3), GPU(3)}));
+    _group_configs.emplace_back(GroupConfig(GPU(1), {3, 4, 5},
+      {GPU(0), GPU(0), GPU(0), GPU(1), GPU(1), GPU(1),
+       GPU(2), GPU(2), GPU(2), GPU(3), GPU(3), GPU(3)}));
+    _group_configs.emplace_back(GroupConfig(GPU(2), {6, 7, 8},
+      {GPU(0), GPU(0), GPU(0), GPU(1), GPU(1), GPU(1),
+       GPU(2), GPU(2), GPU(2), GPU(3), GPU(3), GPU(3)}));
+    _group_configs.emplace_back(GroupConfig(GPU(3), {9, 10 ,11},
+      {GPU(0), GPU(0), GPU(0), GPU(1), GPU(1), GPU(1),
+       GPU(2), GPU(2), GPU(2), GPU(3), GPU(3), GPU(3)}));
+
+    _group_configs.emplace_back(GroupConfig(GPU(4), {0, 1, 2, 3, 4, 5},
+      {GPU(4), GPU(4), GPU(4), GPU(4), GPU(4), GPU(4),
+       GPU(5), GPU(5), GPU(5), GPU(5), GPU(5), GPU(5)}));
+    _group_configs.emplace_back(GroupConfig(GPU(5), {6, 7, 8, 9, 10, 11},
+      {GPU(4), GPU(4), GPU(4), GPU(4), GPU(4), GPU(4),
+       GPU(5), GPU(5), GPU(5), GPU(5), GPU(5), GPU(5)}));
   }
   if (ctxes.size() == 8) {
     _group_configs.clear();
