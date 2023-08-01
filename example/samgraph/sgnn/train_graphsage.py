@@ -298,12 +298,15 @@ def run(worker_id, run_config):
         if (run_config['report_acc'] != 0) and (worker_id == 0):
             tt = time.time()
             acc = accuracy.valid_acc(model, train_device)
+            torch.cuda.synchronize()
+            time.sleep(0.5)
             acc_time = (time.time() - tt)
             run_acc_total += acc_time
             print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f} | Epoch: {:03d}'.format(
                 acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total), epoch))
         (free, total) = torch.cuda.mem_get_info()
         peek_memory = max(peek_memory, total - free)
+        global_barrier.wait()
         if worker_id == 0:
             gpu_used_memory = (total - free) / 1024 / 1024 / 1024
             print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f}'.format(
