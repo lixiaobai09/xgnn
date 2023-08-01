@@ -279,8 +279,9 @@ def run(worker_id, run_config):
             sam.get_log_epoch_value(epoch, sam.kLogEpochTrainTime))
         epoch_train_total_times_profiler.append(
             sam.get_log_epoch_value(epoch, sam.kLogEpochTotalTime))
+        (free, total) = torch.cuda.mem_get_info()
+        peek_memory = max(peek_memory, total - free)
         if worker_id == 0:
-            (free, total) = torch.cuda.mem_get_info()
             used = (total - free) / 1024 / 1024 / 1024
             torch_mem_reserved = torch.cuda.memory_reserved() / 1024 / 1024 / 1024
             print('Epoch {:05d} | Epoch Time {:.4f} | Sample {:.4f} | Copy {:.4f} | Total Train(Profiler) {:.4f} | GPU memory {:.2f} | torch memory used {:.2f}'.format(
@@ -345,11 +346,10 @@ def run(worker_id, run_config):
 
     sam.shutdown()
 
-    print(f"memory:graph={sam.get_log_init_value(sam.kLogInitL1GraphMemory)}")
-    print(f"memory:feature={sam.get_log_init_value(sam.kLogInitL1FeatMemory)}")
-    print(f"memory:workspace_total={sam.get_log_init_value(sam.kLogInitL1WorkspaceTotalMemory)}")
-    if run_config['peek_memory']:
-        print(f'memory:peek_memory={peek_memory}')
+    print(f"memory({device}):graph={sam.get_log_init_value(sam.kLogInitL1GraphMemory)}")
+    print(f"memory({device}):feature={sam.get_log_init_value(sam.kLogInitL1FeatMemory)}")
+    print(f"memory({device}):workspace_total={sam.get_log_init_value(sam.kLogInitL1WorkspaceTotalMemory)}")
+    print(f'memory({device}):peek_memory={peek_memory}')
 
 
 if __name__ == '__main__':

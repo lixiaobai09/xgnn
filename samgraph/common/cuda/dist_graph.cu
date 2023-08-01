@@ -18,7 +18,7 @@
 #include "../timer.h"
 #include "../run_config.h"
 #include "../function.h"
-
+#include "../profiler.h"
 
 namespace samgraph {
 namespace common {
@@ -433,6 +433,7 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
 
   for (auto part_id : part_ids) {
     _part_feature[part_id] = _PartitionFeature(part_id);
+    Profiler::Get().LogInitAdd(kLogInitL1FeatMemory, _part_feature[part_id]->NumBytes());
   }
 
   // share partition feature cache to others
