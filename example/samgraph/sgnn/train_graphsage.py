@@ -295,10 +295,13 @@ def run(worker_id, run_config):
         if (run_config['report_acc'] != 0) and (worker_id == 0):
             tt = time.time()
             acc = accuracy.valid_acc(model, train_device)
+            torch.cuda.synchronize()
+            time.sleep(0.5)
             acc_time = (time.time() - tt)
             run_acc_total += acc_time
             print('Valid Acc: {:.2f}% | Acc Time: {:.4f} | Total Step: {:d} | Time Cost: {:.2f} | Epoch: {:03d}'.format(
                 acc * 100.0, acc_time, total_steps, (time.time() - run_start - run_acc_total), epoch))
+        global_barrier.wait()
         if worker_id == 0:
             (free, total) = torch.cuda.mem_get_info()
             used = (total - free) / 1024 / 1024 / 1024

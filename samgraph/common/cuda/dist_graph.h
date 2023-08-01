@@ -292,15 +292,18 @@ class DistGraph {
 class PartitionSolver {
  public:
 
-  PartitionSolver(const std::vector<Context> &ctxes);
-  std::vector<DistGraph::GroupConfig> solve() const ;
- private:
-  std::vector<Context> _ctxes;
-
   struct LinkTopoInfo {
     double bandwidth_matrix[kMaxDevice][kMaxDevice];
     int nvlink_matrix[kMaxDevice][kMaxDevice];
-  } _topo_info;
+  };
+  PartitionSolver(const std::vector<Context> &ctxes);
+  std::vector<DistGraph::GroupConfig> solve() const ;
+  const LinkTopoInfo* GetLinkTopoInfo() const {
+    return &_topo_info;
+  }
+ private:
+  std::vector<Context> _ctxes;
+  LinkTopoInfo _topo_info;
   void DetectTopo();
   void DetectTopo_child(const std::string &topo_file);
   void LoadTopoFromFile(std::ifstream &ifs);
