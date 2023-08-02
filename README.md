@@ -32,7 +32,7 @@ SamGraph is the framework shared by the above system. SGNN is the initial versio
 ├── evaluation                  # Experiment Scripts
 │   ├── overall
 │   ├── factor_analysis
-├── samgraph                    # FGNN, SGNN source codes
+├── samgraph                    # XGNN, SGNN source codes
 └── utility                     # Useful tools for dataset preprocessing
 ```
 
@@ -57,7 +57,7 @@ SamGraph is the framework shared by the above system. SGNN is the initial versio
 
 ### Install CUDA11.7
 
-FGNN is built on CUDA 11.7. Follow the instructions in https://developer.nvidia.com/cuda-11-7-0-download-archive to install CUDA 11.7, and make sure that `/usr/local/cuda` is linked to `/usr/local/cuda-11.7`.
+XGNN is built on CUDA 11.7. Follow the instructions in https://developer.nvidia.com/cuda-11-7-0-download-archive to install CUDA 11.7, and make sure that `/usr/local/cuda` is linked to `/usr/local/cuda-11.7`.
 
 ### Install GNN Training Systems
 
@@ -76,7 +76,7 @@ We use conda to manage our python environment.
 2. Download GNN systems.
 
     ```bash
-    # Download FGNN source code
+    # Download XGNN source code
     git clone --recursive https://github.com/lixiaobai09/xgnn.git
     ```
 
@@ -84,10 +84,10 @@ We use conda to manage our python environment.
 
     ```bash
     # Install DGL
-    ./gnnlab/3rdparty/dgl_install.sh
+    ./xgnn/3rdparty/dgl_install.sh
 
     # Install fastgraph
-    ./gnnlab/utility/fg_install.sh
+    ./xgnn/utility/fg_install.sh
     ```
 
     
