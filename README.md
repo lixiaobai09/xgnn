@@ -14,7 +14,7 @@ SamGraph is the framework shared by the above system. SGNN is the initial versio
     - [Install GNN Training Systems](#install-gnn-training-systems)
     - [Change ULIMIT](#change-ulimit)
   - [Dataset Preprocessing](#dataset-preprocessing)
-  - [QuickStart: Use XGNN to train GNN models](#quickstart-use-fgnn-to-train-gnn-models)
+  - [QuickStart: Use XGNN to train GNN models](#quickstart-use-xgnn-to-train-gnn-models)
   - [Experiments](#experiments)
   - [License](#license)
 
