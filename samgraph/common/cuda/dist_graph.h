@@ -233,7 +233,7 @@ class DistGraph {
   }
   void GraphLoad(Dataset *dataset, int sampler_id, Context sampler_ctx,
       IdType num_cache_node);
-  void FeatureLoad(int trainer_id, Context trainer_ctx,
+  virtual void FeatureLoad(int trainer_id, Context trainer_ctx,
       const IdType *cache_rank_node, const IdType num_cache_node,
       DataType dtype, size_t dim,
       const void* cpu_src_feature_data,
@@ -242,11 +242,18 @@ class DistGraph {
   DeviceDistFeature DeviceFeatureHandle() const;
 
   static void Create(std::vector<Context> ctxes);
-  static void Release(DistGraph *dist_graph);
-  static std::shared_ptr<DistGraph> Get() {
+  virtual static void Release(DistGraph *dist_graph);
+  virtual static std::shared_ptr<DistGraph> Get() {
     CHECK(_inst != nullptr) << "The static instance is not be initialized";
     return _inst;
   }
+
+ protected:
+  IdType _trainer_id;
+  IdType _num_feature_cache_node;
+  IdType _feat_dim;
+  std::vector<TensorPtr> _part_feature;
+  void **_d_part_feature;
 
  private:
   DistGraph() = delete;
@@ -268,17 +275,12 @@ class DistGraph {
   int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
-  std::vector<TensorPtr> _part_feature;
   std::vector<GroupConfig> _group_configs;
   IdType _num_graph_cache_node;
   IdType _num_node;
-  IdType _trainer_id;
-  IdType _num_feature_cache_node;
-  IdType _feat_dim;
 
   IdType **_d_part_indptr;
   IdType **_d_part_indices;
-  void **_d_part_feature;
 
   struct SharedData {
     pthread_barrier_t barrier;
