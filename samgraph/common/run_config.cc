@@ -93,6 +93,9 @@ UMPolicy             RunConfig::unified_memory_policy          = UMPolicy::kDefa
 std::vector<Context> RunConfig::unified_memory_ctxes;
 
 bool                 RunConfig::use_dist_graph                 = false;
+bool                 RunConfig::use_ics22_song_solver          = false;
+int                  RunConfig::clique_size                    = 0;
+double               RunConfig::ics22_song_alpha               = 0.0f;
 double               RunConfig::dist_graph_percentage          = 0.0f;
 int                  RunConfig::dist_graph_part_cpu            = 0;
 

@@ -28,6 +28,7 @@
 #include "../timer.h"
 #include "cuda_cache_manager.h"
 #include "cuda_utils.h"
+#include "ics22_song_dist_feature.h"
 #include "../profiler.h"
 
 namespace samgraph {
@@ -263,11 +264,12 @@ __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
   }
 }
 
-template <typename T>
-__global__ void combine_cache_data(void *output, const IdType *cache_src_index,
+template <typename T, typename DeviceFeatureType>
+__global__ void combine_cache_data_for_partition(void *output,
+                                   const IdType *cache_src_index,
                                    const IdType *cache_dst_index,
                                    const size_t num_cache,
-                                   DeviceDistFeature cache,
+                                   DeviceFeatureType cache,
                                    size_t dim) {
   T *output_data = reinterpret_cast<T *>(output);
   
@@ -279,7 +281,7 @@ __global__ void combine_cache_data(void *output, const IdType *cache_src_index,
     const size_t src_idx = cache_src_index[i];
     const size_t dst_idx = cache_dst_index[i];
     while (col < dim) {
-      output_data[dst_idx * dim + col] = cache.Get<T>(src_idx, col);
+      output_data[dst_idx * dim + col] = cache.template Get<T>(src_idx, col);
       col += blockDim.x;
     }
     i += stride;
@@ -582,12 +584,25 @@ void GPUCacheManager::GPUExtractMissData(void *output, const IdType *miss_src_in
 template <typename T>
 inline void dispatch_combine_cache(dim3 grid, dim3 block, cudaStream_t stream,
                           void *output, const IdType *cache_src_index,
-                          const IdType *cache_dst_index, const size_t num_cache, size_t dim,
-                          const void *norm_cache, const DeviceDistFeature &part_cache) {
-  if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
-    combine_cache_data<T><<<grid, block, 0, stream>>>(
-      output, cache_src_index, cache_dst_index, num_cache,
-      part_cache, dim);
+                          const IdType *cache_dst_index, const size_t num_cache,
+                          size_t dim,
+                          const void *norm_cache, const DistGraph *dist_graph) {
+  if (RunConfig::run_arch == kArch6 && (RunConfig::part_cache
+                                        || RunConfig::use_ics22_song_solver)) {
+    if (RunConfig::use_ics22_song_solver) {
+      auto ics22_dist_graph_ptr
+             = dynamic_cast<const ICS22SongDistGraph*>(dist_graph);
+      CHECK(ics22_dist_graph_ptr != nullptr);
+      combine_cache_data_for_partition<T, DeviceICS22SongDistFeature>
+        <<<grid, block, 0, stream>>>(
+          output, cache_src_index, cache_dst_index, num_cache,
+          ics22_dist_graph_ptr->DeviceFeatureHandle(), dim);
+    } else {
+      combine_cache_data_for_partition<T, DeviceDistFeature>
+        <<<grid, block, 0, stream>>>(
+          output, cache_src_index, cache_dst_index, num_cache,
+          dist_graph->DeviceFeatureHandle(), dim);
+    }
   } else {
     combine_cache_data<T><<<grid, block, 0, stream>>>(
       output, cache_src_index, cache_dst_index, num_cache,
@@ -613,16 +628,11 @@ void GPUCacheManager::CombineCacheData(void *output,
   }
   const dim3 grid(RoundUpDiv(num_cache, static_cast<size_t>(block.y)));
 
-  DeviceDistFeature part_cache;
-  if (RunConfig::run_arch == kArch6 && RunConfig::part_cache) {
-    part_cache = _dist_graph->DeviceFeatureHandle();
-  }
-
   switch (_dtype) {
     case kF32:
       dispatch_combine_cache<float>(grid, block, cu_stream, 
           output, cache_src_index, cache_dst_index, num_cache, _dim, 
-          _trainer_cache_data, part_cache);
+          _trainer_cache_data, _dist_graph);
       // combine_cache_data<float><<<grid, block, 0, cu_stream>>>(
       //     output, cache_src_index, cache_dst_index, num_cache,
       //     _trainer_cache_data, _dim);
@@ -630,7 +640,7 @@ void GPUCacheManager::CombineCacheData(void *output,
     case kF64:
       dispatch_combine_cache<double>(grid, block, cu_stream, 
           output, cache_src_index, cache_dst_index, num_cache, _dim, 
-          _trainer_cache_data, part_cache);
+          _trainer_cache_data, _dist_graph);
       // combine_cache_data<double><<<grid, block, 0, cu_stream>>>(
       //     output, cache_src_index, cache_dst_index, num_cache,
       //     _trainer_cache_data, _dim);
@@ -638,7 +648,7 @@ void GPUCacheManager::CombineCacheData(void *output,
     case kF16:
       dispatch_combine_cache<short>(grid, block, cu_stream, 
           output, cache_src_index, cache_dst_index, num_cache, _dim, 
-          _trainer_cache_data, part_cache);
+          _trainer_cache_data, _dist_graph);
       // combine_cache_data<short><<<grid, block, 0, cu_stream>>>(
       //     output, cache_src_index, cache_dst_index, num_cache,
       //     _trainer_cache_data, _dim);
@@ -646,7 +656,7 @@ void GPUCacheManager::CombineCacheData(void *output,
     case kU8:
       dispatch_combine_cache<uint8_t>(grid, block, cu_stream, 
           output, cache_src_index, cache_dst_index, num_cache, _dim, 
-          _trainer_cache_data, part_cache);
+          _trainer_cache_data, _dist_graph);
       // combine_cache_data<uint8_t><<<grid, block, 0, cu_stream>>>(
       //     output, cache_src_index, cache_dst_index, num_cache,
       //     _trainer_cache_data, _dim);
@@ -654,7 +664,7 @@ void GPUCacheManager::CombineCacheData(void *output,
     case kI32:
       dispatch_combine_cache<int32_t>(grid, block, cu_stream, 
           output, cache_src_index, cache_dst_index, num_cache, _dim, 
-          _trainer_cache_data, part_cache);
+          _trainer_cache_data, _dist_graph);
       // combine_cache_data<int32_t><<<grid, block, 0, cu_stream>>>(
       //     output, cache_src_index, cache_dst_index, num_cache,
       //     _trainer_cache_data, _dim);
@@ -662,7 +672,7 @@ void GPUCacheManager::CombineCacheData(void *output,
     case kI64:
       dispatch_combine_cache<int64_t>(grid, block, cu_stream, 
           output, cache_src_index, cache_dst_index, num_cache, _dim, 
-          _trainer_cache_data, part_cache);
+          _trainer_cache_data, _dist_graph);
       // combine_cache_data<int64_t><<<grid, block, 0, cu_stream>>>(
       //     output, cache_src_index, cache_dst_index, num_cache,
       //     _trainer_cache_data, _dim);

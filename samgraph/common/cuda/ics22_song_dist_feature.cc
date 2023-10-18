@@ -123,10 +123,20 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
 
 ICS22SongDistGraph::ICS22SongDistGraph(std::vector<Context> ctxes,
     IdType clique_size,
-    Dataset *dataset,
+    const Dataset *dataset,
     const double alpha,
     IdType num_feature_cached_node)
   : DistGraph(ctxes) {
+  std::stringstream ss;
+  ss << "[ ";
+  for (const auto &ctx : ctxes) {
+    ss << ctx.device_id << " ";
+  }
+  ss << "]";
+  LOG(INFO) << "Initial ICS22SongDistGraph with: devices=" << ss.str()
+    << ", clique_size=" << clique_size
+    << ", alpha=" << alpha
+    << ", num_feature_cached_node=" << num_feature_cached_node;
   _ctxes = ctxes;
   _num_feature_cache_node = num_feature_cached_node;
   auto nvlink_matrix = PartitionSolver(ctxes).GetLinkTopoInfo()->nvlink_matrix;
@@ -249,7 +259,7 @@ void ICS22SongDistGraph::Release(DistGraph *dist_graph) {
 
 void ICS22SongDistGraph::Create(std::vector<Context> ctxes,
     IdType clique_size,
-    Dataset *dataset,
+    const Dataset *dataset,
     const double alpha,
     IdType num_feature_cached_node) {
   CHECK(_inst == nullptr);

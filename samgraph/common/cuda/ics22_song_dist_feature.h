@@ -54,7 +54,7 @@ class ICS22SongDistGraph : public DistGraph {
       StreamHandle stream = nullptr) override;
   DeviceICS22SongDistFeature DeviceFeatureHandle() const;
   static void Create(std::vector<Context> ctxes, IdType clique_size,
-      Dataset *dataset,
+      const Dataset *dataset,
       const double alpha,
       IdType num_feature_cached_node);
   static void Release(DistGraph *dist_graph);
@@ -65,7 +65,7 @@ class ICS22SongDistGraph : public DistGraph {
   ICS22SongDistGraph(const ICS22SongDistGraph &graph) = delete;
   ICS22SongDistGraph& operator=(const ICS22SongDistGraph& graph) = delete;
   ICS22SongDistGraph(std::vector<Context> ctxes, IdType clique_size,
-      Dataset *dataset,
+      const Dataset *dataset,
       const double alpha,
       IdType num_feature_cached_node);
 
