@@ -242,8 +242,8 @@ class DistGraph {
   DeviceDistFeature DeviceFeatureHandle() const;
 
   static void Create(std::vector<Context> ctxes);
-  virtual static void Release(DistGraph *dist_graph);
-  virtual static std::shared_ptr<DistGraph> Get() {
+  static void Release(DistGraph *dist_graph);
+  static std::shared_ptr<DistGraph> Get() {
     CHECK(_inst != nullptr) << "The static instance is not be initialized";
     return _inst;
   }
@@ -255,14 +255,22 @@ class DistGraph {
   std::vector<TensorPtr> _part_feature;
   void **_d_part_feature;
 
+  DistGraph(std::vector<Context> ctxes);
+  virtual ~DistGraph() { LOG(ERROR) << "Do not call function in here"; };
+
+  struct SharedData {
+    pthread_barrier_t barrier;
+    cudaIpcMemHandle_t mem_handle[kMaxDevice][kMaxDevice];
+  };
+  SharedData *_shared_data;
+  void _Barrier();
+  static std::shared_ptr<DistGraph> _inst;
+
  private:
   DistGraph() = delete;
   DistGraph(const DistGraph &) = delete;
   DistGraph& operator = (const DistGraph &) = delete;
-  ~DistGraph() = delete;
 
-  DistGraph(std::vector<Context> ctxes);
-  void _Barrier();
   void _DatasetPartition(const Dataset *dataset, Context ctx,
     IdType part_id, IdType num_part, IdType num_part_node);
   void _DataIpcShare(std::vector<TensorPtr> &part_data,
@@ -282,13 +290,6 @@ class DistGraph {
   IdType **_d_part_indptr;
   IdType **_d_part_indices;
 
-  struct SharedData {
-    pthread_barrier_t barrier;
-    cudaIpcMemHandle_t mem_handle[kMaxDevice][kMaxDevice];
-  };
-  SharedData *_shared_data;
-
-  static std::shared_ptr<DistGraph> _inst;
 };
 
 class PartitionSolver {

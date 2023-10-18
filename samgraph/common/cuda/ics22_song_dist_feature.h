@@ -11,8 +11,8 @@ namespace cuda {
 
 class DeviceICS22SongDistFeature {
  public:
-  DeviceICS22SongFeature() = default;
-  DeviceICS22SongFeature(void **part_feature_data,
+  DeviceICS22SongDistFeature() = default;
+  DeviceICS22SongDistFeature(void **part_feature_data,
       IdType *device_map,
       IdType *new_idx_map,
       IdType num_cache_node, IdType dim)
@@ -52,20 +52,30 @@ class ICS22SongDistGraph : public DistGraph {
       DataType dtype, size_t dim,
       const void* cpu_src_feature_data,
       StreamHandle stream = nullptr) override;
-  DeviceICS22SongFeature DeviceFeatureHandle() const;
-  static void Create(std::vector<Context> ctxes, IdType clique_size);
-  static void Release(DistGraph *dist_graph) override;
+  DeviceICS22SongDistFeature DeviceFeatureHandle() const;
+  static void Create(std::vector<Context> ctxes, IdType clique_size,
+      Dataset *dataset,
+      const double alpha,
+      IdType num_feature_cached_node);
+  static void Release(DistGraph *dist_graph);
+  ~ICS22SongDistGraph() { LOG(ERROR) << "Do not call function in here"; };
 
  private:
   ICS22SongDistGraph() = delete;
   ICS22SongDistGraph(const ICS22SongDistGraph &graph) = delete;
   ICS22SongDistGraph& operator=(const ICS22SongDistGraph& graph) = delete;
-  ~ICS22SongDistGraph() = delete;
-  ICS22SongDistGraph(std::vector<Context> ctxes, IdType clique_size);
+  ICS22SongDistGraph(std::vector<Context> ctxes, IdType clique_size,
+      Dataset *dataset,
+      const double alpha,
+      IdType num_feature_cached_node);
 
+  std::vector<Context> _ctxes;
   std::vector<TensorPtr> _h_device_map_vec;
   std::vector<TensorPtr> _h_new_idx_map_vec;
   std::vector<TensorPtr> _h_device_cached_nodes_vec;
+
+  IdType *_d_device_map;
+  IdType *_d_new_idx_map;
 };
 
 } // cuda
