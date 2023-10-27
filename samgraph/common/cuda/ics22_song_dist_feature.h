@@ -15,16 +15,16 @@ class DeviceICS22SongDistFeature {
   DeviceICS22SongDistFeature(void **part_feature_data,
       IdType *device_map,
       IdType *new_idx_map,
-      IdType num_cache_node, IdType dim)
+      IdType num_node, IdType dim)
     : _part_feature_data(part_feature_data),
       _device_map(device_map),
       _new_idx_map(new_idx_map),
-      _num_cache_node(num_cache_node),
+      _num_node(num_node),
       _dim(dim) {};
 
   template<typename T>
   inline __device__ const T& Get(IdType node_id, IdType col) {
-    assert(node_id < _num_cache_node);
+    assert(node_id < _num_node);
     assert(col < _dim);
     IdType part_id, real_id;
     _GetRealPartId(node_id, &part_id, &real_id);
@@ -41,7 +41,7 @@ class DeviceICS22SongDistFeature {
   void **_part_feature_data;
   IdType *_device_map;
   IdType *_new_idx_map;
-  IdType _num_cache_node;
+  IdType _num_node;
   IdType _dim;
 };
 
@@ -52,6 +52,8 @@ class ICS22SongDistGraph : public DistGraph {
       DataType dtype, size_t dim,
       const void* cpu_src_feature_data,
       StreamHandle stream = nullptr) override;
+  IdType GetRealCachedNodeNum() const { return _total_cached_node; };
+  TensorPtr GetRankingNode() const { return _ranking_node_tensor; };
   DeviceICS22SongDistFeature DeviceFeatureHandle() const;
   static void Create(std::vector<Context> ctxes, IdType clique_size,
       const Dataset *dataset,
@@ -73,9 +75,10 @@ class ICS22SongDistGraph : public DistGraph {
   std::vector<TensorPtr> _h_device_map_vec;
   std::vector<TensorPtr> _h_new_idx_map_vec;
   std::vector<TensorPtr> _h_device_cached_nodes_vec;
-
-  IdType *_d_device_map;
-  IdType *_d_new_idx_map;
+  TensorPtr _d_device_map_tensor;
+  TensorPtr _d_new_idx_map_tensor;
+  TensorPtr _ranking_node_tensor;
+  IdType _total_cached_node;
 };
 
 } // cuda

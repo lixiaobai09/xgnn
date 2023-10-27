@@ -605,6 +605,7 @@ DistGraph::DistGraph(std::vector<Context> ctxes) {
   pthread_barrierattr_init(&attr);
   pthread_barrierattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
   pthread_barrier_init(&_shared_data->barrier, &attr, num_worker);
+  LOG(DEBUG) << "DistGraph initialized";
 }
 
 void DistGraph::_Barrier() {

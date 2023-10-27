@@ -121,7 +121,7 @@ __global__ void get_miss_index(const IdType *hashtable, const IdType *nodes,
   // }
 }
 
-template <size_t BLOCK_SIZE, size_t TILE_SIZE>
+template <size_t BLOCK_SIZE, size_t TILE_SIZE, bool ICS22_SOLVER = false>
 __global__ void get_cache_index(const IdType *hashtable, const IdType *nodes,
                                 const size_t num_nodes,
                                 IdType *output_cache_dst_index,
@@ -154,7 +154,11 @@ __global__ void get_cache_index(const IdType *hashtable, const IdType *nodes,
       // new node ID in subgraph
       output_cache_dst_index[pos] = index;
       // old node ID in original graph
-      output_cache_src_index[pos] = hashtable[nodes[index]];
+      if (ICS22_SOLVER == false) {
+        output_cache_src_index[pos] = hashtable[nodes[index]];
+      } else {
+        output_cache_src_index[pos] = nodes[index];
+      }
     }
   }
 
@@ -399,10 +403,17 @@ void GPUCacheManager::GetMissCacheIndex(
           output_miss_src_index, miss_prefix_counts);
   sampler_device->StreamSync(_sampler_ctx, stream);
 
-  get_cache_index<Constant::kCudaBlockSize, Constant::kCudaTileSize>
-      <<<grid, block, 0, cu_stream>>>(
-          _sampler_gpu_hashtable, nodes, num_nodes, output_cache_dst_index,
-          output_cache_src_index, cache_prefix_counts);
+  if (RunConfig::use_ics22_song_solver) {
+    get_cache_index<Constant::kCudaBlockSize, Constant::kCudaTileSize, true>
+        <<<grid, block, 0, cu_stream>>>(
+            _sampler_gpu_hashtable, nodes, num_nodes, output_cache_dst_index,
+            output_cache_src_index, cache_prefix_counts);
+  } else {
+    get_cache_index<Constant::kCudaBlockSize, Constant::kCudaTileSize>
+        <<<grid, block, 0, cu_stream>>>(
+            _sampler_gpu_hashtable, nodes, num_nodes, output_cache_dst_index,
+            output_cache_src_index, cache_prefix_counts);
+  }
   sampler_device->StreamSync(_sampler_ctx, stream);
 
   IdType num_miss;
@@ -579,6 +590,7 @@ void GPUCacheManager::GPUExtractMissData(void *output, const IdType *miss_src_in
     CHECK(0);
   }
   device->StreamSync(_trainer_ctx, stream);
+  LOG(DEBUG) << "GPUCacheManager::GPUExtractMissData(): after extract_miss_data";
 }
 
 template <typename T>
@@ -617,6 +629,8 @@ void GPUCacheManager::CombineCacheData(void *output,
                                        StreamHandle stream) {
   CHECK_LE(num_cache, _num_cached_nodes);
   if (num_cache == 0) return;
+
+  LOG(DEBUG) << "CombineCacheData";
 
   auto device = Device::Get(_trainer_ctx);
   auto cu_stream = static_cast<cudaStream_t>(stream);
@@ -682,6 +696,7 @@ void GPUCacheManager::CombineCacheData(void *output,
   }
 
   device->StreamSync(_trainer_ctx, stream);
+  LOG(DEBUG) << "CombineCacheData successfully";
 }
 
 void GPUDynamicCacheManager::GetMissCacheIndex(

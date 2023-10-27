@@ -251,6 +251,7 @@ class DistGraph {
  protected:
   IdType _trainer_id;
   IdType _num_feature_cache_node;
+  IdType _num_node;
   IdType _feat_dim;
   std::vector<TensorPtr> _part_feature;
   void **_d_part_feature;
@@ -285,7 +286,6 @@ class DistGraph {
   std::vector<TensorPtr> _part_indices;
   std::vector<GroupConfig> _group_configs;
   IdType _num_graph_cache_node;
-  IdType _num_node;
 
   IdType **_d_part_indptr;
   IdType **_d_part_indices;

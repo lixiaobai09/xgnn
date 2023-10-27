@@ -1,7 +1,14 @@
+#ifdef __GNUC__
+#include <parallel/algorithm>
+#else
 #include <algorithm>
+#endif
 
+
+#include "../timer.h"
 #include "../run_config.h"
 #include "../function.h"
+#include "../device.h"
 
 #include "dist_graph.h"
 #include "ics22_song_dist_feature.h"
@@ -17,15 +24,21 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
     const std::vector<Context> &ctxes,
     const double alpha,
     const IdType clique_size,
+    const DataType dtype,
     std::vector<TensorPtr> &device_map_vec,
     std::vector<TensorPtr> &new_idx_map_vec,
-    std::vector<TensorPtr> &device_cached_nodes_vec) {
+    std::vector<TensorPtr> &device_cached_nodes_vec,
+    TensorPtr &ranking_tensor,
+    IdType &total_cached_node) {
 
   device_map_vec.clear();
   new_idx_map_vec.clear();
-  device_map_vec.resize(ctxes.size());
-  new_idx_map_vec.resize(ctxes.size());
+  device_cached_nodes_vec.clear();
+  device_map_vec.resize(ctxes.size(), nullptr);
+  new_idx_map_vec.resize(ctxes.size(), nullptr);
+  device_cached_nodes_vec.resize(ctxes.size(), nullptr);
   IdType num_node = sample_prob.size();
+  Context cpu_ctx = CPU(CPU_CLIB_MALLOC_DEVICE);
   using SortType = std::pair<double, IdType>; // first: weight
                                               // second : id
   std::vector<SortType> sample_idx_vec;
@@ -33,38 +46,43 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
   for (IdType i = 0; i < num_node; ++i) {
     sample_idx_vec.emplace_back(sample_prob[i], i);
   }
-  // XXX: speed up it
+  Timer t;
+#ifdef __GNUC__
+  __gnu_parallel::sort(sample_idx_vec.begin(), sample_idx_vec.end(),
+      std::greater<SortType>());
+#else
   std::sort(sample_idx_vec.begin(), sample_idx_vec.end(),
-      [](const SortType &a, const SortType &b) {
-        if (std::get<0>(a) != std::get<0>(b)) {
-          return std::get<0>(a) > std::get<0>(b);
-        }
-        return std::get<1>(a) > std::get<1>(b);
-      });
-  TensorPtr origin_tensor = Tensor::Empty(DataType::kI32, {num_node},
-      CPU(), "");
-  auto origin_tensor_data = origin_tensor->Ptr<IdType>();
-  TensorPtr cached_nodes_tensor = Tensor::Empty(DataType::kI32,
-      {num_cached_node}, CPU(), "");
-  auto cached_nodes_tensor_data = cached_nodes_tensor->Ptr<IdType>();
+      std::greater<SortType>());
+#endif
+  LOG(DEBUG) << "Sort sample_prob time cost: " << t.Passed() << " sec.";
+  TensorPtr origin_new_idx_tensor = Tensor::Empty(dtype, {num_node},
+      cpu_ctx, "");
+  TensorPtr origin_cached_tensor = Tensor::Empty(dtype, {num_cached_node},
+      cpu_ctx, "");
+  auto origin_new_idx_tensor_data = origin_new_idx_tensor->Ptr<IdType>();
+  auto ranking_tensor_data = ranking_tensor->Ptr<IdType>();
+  auto origin_cached_tensor_data = origin_cached_tensor->Ptr<IdType>();
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
   for (IdType i = 0; i < num_node; ++i) {
-    origin_tensor_data[i] = Constant::kEmptyKey;
+    origin_new_idx_tensor_data[i] = Constant::kEmptyKey;
+    ranking_tensor_data[i] = std::get<1>(sample_idx_vec[i]);
   }
   for (IdType i = 0; i < num_cached_node; ++i) {
-    origin_tensor_data[std::get<1>(sample_idx_vec[i])] = i;
-    cached_nodes_tensor_data[i] = std::get<1>(sample_idx_vec[i]);
+    origin_new_idx_tensor_data[std::get<1>(sample_idx_vec[i])] = i;
+    origin_cached_tensor_data[i] = std::get<1>(sample_idx_vec[i]);
   }
-  IdType num_cliques = (ctxes.size() / clique_size);
+  LOG(DEBUG) << "Initialized origin_new_idx_tensor with num_node=" << num_node
+    << ", origin_cached_tensor with num_cached_node=" << num_cached_node;
   for (const Context &ctx : ctxes) {
     int device_id = ctx.device_id;
-    CHECK(device_id < static_cast<int>(device_map_vec.size()));
-    new_idx_map_vec[device_id] = Tensor::CopyTo(origin_tensor, CPU(),
+    CHECK(device_id < static_cast<int>(ctxes.size()));
+    new_idx_map_vec[device_id] = Tensor::CopyTo(origin_new_idx_tensor, cpu_ctx,
         nullptr, "new index map of nodes in device "
           + std::to_string(device_id));
-    device_cached_nodes_vec[device_id] = Tensor::CopyTo(cached_nodes_tensor,
-        CPU(), nullptr, "cached nodes in device " + std::to_string(device_id));
-    device_map_vec[device_id] = Tensor::Empty(DataType::kI32, {num_node},
-        CPU(), "device map of nodes in device " + std::to_string(device_id));
+    device_cached_nodes_vec[device_id] = Tensor::CopyTo(origin_cached_tensor,
+        cpu_ctx, nullptr, "cached nodes in device " + std::to_string(device_id));
+    device_map_vec[device_id] = Tensor::Empty(dtype, {num_node},
+        cpu_ctx, "device map of nodes in device " + std::to_string(device_id));
     auto device_map = device_map_vec[device_id]->Ptr<IdType>();
     for (IdType i = 0; i < num_node; ++i) {
       device_map[i] = Constant::kEmptyKey;
@@ -73,6 +91,8 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
       device_map[std::get<1>(sample_idx_vec[i])] = device_id;
     }
   }
+  total_cached_node = num_cached_node;
+  if (clique_size == 1) return;
   std::vector<SortType> p_accum(clique_size);
   for (IdType i = 0; i < clique_size; ++i) {
     p_accum[i] = {0.0, i};
@@ -87,35 +107,41 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
   };
   std::vector<IdType> device_idx_order = _GetDeviceOrder();
   IdType last_i = (num_node - num_cached_node);
-  for (IdType i = 0; i < last_i; ++i) {
-    if (i % (clique_size - 1) == 0) {
-      device_idx_order = _GetDeviceOrder();
-    }
-    IdType candidate_node = std::get<1>(sample_idx_vec[num_cached_node + i]);
-    IdType new_node_idx = num_cached_node - 1 - (i / (clique_size - 1));
-    IdType node_to_be_replaced = std::get<1>(sample_idx_vec[new_node_idx]);
-    if (sample_prob[candidate_node] >= alpha * sample_prob[node_to_be_replaced]) {
-      IdType cur_dev_idx = device_idx_order[i % (clique_size - 1)];
-      std::get<0>(p_accum[cur_dev_idx]) += sample_prob[candidate_node];
-      // for each clique
-      for (IdType j = 0; j < num_cliques; ++j) {
-        for (IdType k = 0; k < clique_size; ++k) {
-          device_map_vec[ctxes[j * clique_size + k].device_id]
-            ->Ptr<IdType>()[candidate_node]
-              = ctxes[j * clique_size + cur_dev_idx].device_id;
-          new_idx_map_vec[ctxes[j * clique_size + k].device_id]
-            ->Ptr<IdType>()[candidate_node]
-              = new_node_idx;
-        }
-        device_map_vec[ctxes[j * clique_size + cur_dev_idx].device_id]
-          ->Ptr<IdType>()[node_to_be_replaced]
-            = ctxes[(j + 1) * clique_size - 1].device_id;
-        device_cached_nodes_vec[ctxes[j * clique_size + cur_dev_idx].device_id]
-          ->Ptr<IdType>()[new_node_idx] = candidate_node;
+  IdType num_cliques = (ctxes.size() / clique_size);
+  LOG(DEBUG) << "Start to replacement";
+  {
+    IdType i = 0;
+    for (; i < last_i; ++i) {
+      if (i % (clique_size - 1) == 0) {
+        device_idx_order = _GetDeviceOrder();
       }
-    } else {
-      break;
+      IdType candidate_node = std::get<1>(sample_idx_vec[num_cached_node + i]);
+      IdType new_node_idx = num_cached_node - 1 - (i / (clique_size - 1));
+      IdType node_to_be_replaced = std::get<1>(sample_idx_vec[new_node_idx]);
+      if (sample_prob[candidate_node] >= alpha * sample_prob[node_to_be_replaced]) {
+        IdType cur_dev_idx = device_idx_order[i % (clique_size - 1)];
+        std::get<0>(p_accum[cur_dev_idx]) += sample_prob[candidate_node];
+        // for each clique
+        for (IdType j = 0; j < num_cliques; ++j) {
+          for (IdType k = 0; k < clique_size; ++k) {
+            device_map_vec[ctxes[j * clique_size + k].device_id]
+              ->Ptr<IdType>()[candidate_node]
+                = ctxes[j * clique_size + cur_dev_idx].device_id;
+            new_idx_map_vec[ctxes[j * clique_size + k].device_id]
+              ->Ptr<IdType>()[candidate_node]
+                = new_node_idx;
+          }
+          device_map_vec[ctxes[j * clique_size + cur_dev_idx].device_id]
+            ->Ptr<IdType>()[node_to_be_replaced]
+              = ctxes[(j + 1) * clique_size - 1].device_id;
+          device_cached_nodes_vec[ctxes[j * clique_size + cur_dev_idx].device_id]
+            ->Ptr<IdType>()[new_node_idx] = candidate_node;
+        }
+      } else {
+        break;
+      }
     }
+    total_cached_node = num_cached_node + i;
   }
 };
 
@@ -149,18 +175,30 @@ ICS22SongDistGraph::ICS22SongDistGraph(std::vector<Context> ctxes,
       }
     }
   }
-  TensorPtr indptr = dataset->indptr;
-  auto indptr_data = indptr->CPtr<IdType>();
-  IdType num_node = dataset->num_node;
-  std::vector<double> sample_prob(num_node);
-  for (IdType i = 0; i < num_node; ++i) {
-    sample_prob[i] = (indptr_data[i + 1] - indptr_data[i]);
+  TensorPtr indices = dataset->indices;
+  auto indices_data = indices->CPtr<IdType>();
+  DataType dtype = indices->Type();
+  size_t num_edge = dataset->num_edge;
+  _num_node = dataset->num_node;
+  std::vector<std::vector<IdType>> degree_per_thread(
+      RunConfig::omp_thread_num, std::vector<IdType>(_num_node, 0));
+  std::vector<double> sample_prob(_num_node, 0.0f);
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+  for (size_t i = 0; i < num_edge; ++i) {
+    auto thread_idx = omp_get_thread_num();
+    degree_per_thread[thread_idx][indices_data[i]] += 1;
   }
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+  for (size_t i = 0; i < _num_node; ++i) {
+    for (size_t j = 0; j < RunConfig::omp_thread_num; ++j) {
+      sample_prob[i] += degree_per_thread[j][i];
+    }
+  }
+  _ranking_node_tensor = Tensor::Empty(dtype, {_num_node},
+      CPU(CPU_CLIB_MALLOC_DEVICE), "ranking node tensor");
   ICS22SongPlacementSolver(sample_prob, num_feature_cached_node, ctxes,
-      alpha, clique_size, _h_device_map_vec, _h_new_idx_map_vec,
-      _h_device_cached_nodes_vec);
-  _d_device_map = nullptr;
-  _d_new_idx_map = nullptr;
+      alpha, clique_size, dtype, _h_device_map_vec, _h_new_idx_map_vec,
+      _h_device_cached_nodes_vec, _ranking_node_tensor, _total_cached_node);
   LOG(DEBUG) << "ICS22SongDistGraph initialized!";
 };
 
@@ -171,11 +209,11 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
     StreamHandle stream) {
 
   CHECK(trainer_ctx.device_id == trainer_id);
-  CHECK(num_cache_node == 0) << "num_cache_node is not used";
   _trainer_id = trainer_id;
   _feat_dim = dim;
 
   IdType num_cached_node = _h_device_cached_nodes_vec[trainer_id]->Shape()[0];
+  CHECK(num_cache_node == num_cached_node) << "check num_cache_node";
   auto cached_node_data
          = _h_device_cached_nodes_vec[trainer_id]->CPtr<IdType>();
   _part_feature.resize(_ctxes.size(), nullptr);
@@ -233,23 +271,19 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
         sizeof(void*) * _ctxes.size(),
         cudaMemcpyDefault));
   // move map structure to GPU
-  CUDA_CALL(cudaMalloc((void**)&_d_device_map, sizeof(void*)));
-  CUDA_CALL(cudaMemcpy(_d_device_map,
-        _h_device_map_vec[trainer_id]->MutableData(),
-        sizeof(void*), cudaMemcpyDefault));
-  CUDA_CALL(cudaMalloc((void**)&_d_new_idx_map, sizeof(void*)));
-  CUDA_CALL(cudaMemcpy(_d_new_idx_map,
-        _h_new_idx_map_vec[trainer_id]->MutableData(),
-        sizeof(void*), cudaMemcpyDefault));
+  _d_device_map_tensor = Tensor::CopyTo(_h_device_map_vec[trainer_id],
+      trainer_ctx, stream, Constant::kAllocNoScale);
+  _d_new_idx_map_tensor = Tensor::CopyTo(_h_new_idx_map_vec[trainer_id],
+      trainer_ctx, stream, Constant::kAllocNoScale);
 }
 
 DeviceICS22SongDistFeature ICS22SongDistGraph::DeviceFeatureHandle() const {
   CHECK(_feat_dim != 0);
   return DeviceICS22SongDistFeature(
       _d_part_feature,
-      _d_device_map,
-      _d_new_idx_map,
-      _num_feature_cache_node,
+      _d_device_map_tensor->Ptr<IdType>(),
+      _d_new_idx_map_tensor->Ptr<IdType>(),
+      _num_node,
       _feat_dim);
 }
 
