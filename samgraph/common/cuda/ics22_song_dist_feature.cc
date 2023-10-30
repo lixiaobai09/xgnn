@@ -117,6 +117,9 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
       }
       IdType candidate_node = std::get<1>(sample_idx_vec[num_cached_node + i]);
       IdType new_node_idx = num_cached_node - 1 - (i / (clique_size - 1));
+      if (new_node_idx < 0 || new_node_idx >= num_cached_node) {
+        break;
+      }
       IdType node_to_be_replaced = std::get<1>(sample_idx_vec[new_node_idx]);
       if (sample_prob[candidate_node] >= alpha * sample_prob[node_to_be_replaced]) {
         IdType cur_dev_idx = device_idx_order[i % (clique_size - 1)];
@@ -133,7 +136,7 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
           }
           device_map_vec[ctxes[j * clique_size + cur_dev_idx].device_id]
             ->Ptr<IdType>()[node_to_be_replaced]
-              = ctxes[(j + 1) * clique_size - 1].device_id;
+              = ctxes[j * clique_size + device_idx_order.back()].device_id;
           device_cached_nodes_vec[ctxes[j * clique_size + cur_dev_idx].device_id]
             ->Ptr<IdType>()[new_node_idx] = candidate_node;
         }
