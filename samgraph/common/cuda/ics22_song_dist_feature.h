@@ -15,16 +15,17 @@ class DeviceICS22SongDistFeature {
   DeviceICS22SongDistFeature(void **part_feature_data,
       IdType *device_map,
       IdType *new_idx_map,
-      IdType num_node, IdType dim)
+      IdType num_node, IdType dim,
+      IdType compact_bitwidth = 0)
     : _part_feature_data(part_feature_data),
       _device_map(device_map),
       _new_idx_map(new_idx_map),
       _num_node(num_node),
-      _dim(dim) {};
+      _dim(dim),
+      _compact_bitwidth(compact_bitwidth) {};
 
   template<typename T>
   inline __device__ const T& Get(IdType node_id, IdType col) {
-    assert(node_id < _num_node);
     assert(col < _dim);
     IdType part_id, real_id;
     _GetRealPartId(node_id, &part_id, &real_id);
@@ -35,14 +36,25 @@ class DeviceICS22SongDistFeature {
  private:
   inline __device__ void _GetRealPartId(IdType node_id,
     IdType *part_id, IdType *real_id) {
-    *part_id = _device_map[node_id];
-    *real_id = _new_idx_map[node_id];
+    if (_compact_bitwidth) {
+      IdType shift_width = (sizeof(IdType) * 8 - _compact_bitwidth);
+      *part_id = (node_id >> shift_width);
+      *real_id = (node_id & ((1 << shift_width) - 1));
+      assert(*real_id < _num_node);
+    } else {
+      assert(node_id < _num_node);
+      assert(_device_map != nullptr);
+      assert(_new_idx_map != nullptr);
+      *part_id = _device_map[node_id];
+      *real_id = _new_idx_map[node_id];
+    }
   }
   void **_part_feature_data;
   IdType *_device_map;
   IdType *_new_idx_map;
   IdType _num_node;
   IdType _dim;
+  IdType _compact_bitwidth;
 };
 
 class ICS22SongDistGraph : public DistGraph {
@@ -54,6 +66,12 @@ class ICS22SongDistGraph : public DistGraph {
       StreamHandle stream = nullptr) override;
   IdType GetRealCachedNodeNum() const { return _total_cached_node; };
   TensorPtr GetRankingNode() const { return _ranking_node_tensor; };
+  TensorPtr GetIdxMap(Context ctx) const {
+    return _h_new_idx_map_vec[ctx.device_id];
+  }
+  TensorPtr GetDeviceMap(Context ctx) const {
+    return _h_device_map_vec[ctx.device_id];
+  }
   DeviceICS22SongDistFeature DeviceFeatureHandle() const;
   static void Create(std::vector<Context> ctxes, IdType clique_size,
       const Dataset *dataset,

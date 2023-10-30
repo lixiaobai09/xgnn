@@ -144,8 +144,8 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
     _dtype(dtype),
     _dim(dim),
     _cpu_src_data(cpu_src_data),
-    _dist_graph(dist_graph),
-    _trainer_cache_data(nullptr)
+    _trainer_cache_data(nullptr),
+    _dist_graph(dist_graph)
 {
   Timer t;
 
@@ -177,7 +177,7 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
     CHECK(ics22_dist_graph != nullptr);
     auto ranking_node = ics22_dist_graph->GetRankingNode()->CPtr<IdType>();
     real_num_cached_node = ics22_dist_graph->GetRealCachedNodeNum();
-    LOG(INFO) << "num_cached_nodes vs real_num_cached_node: "
+    std::cout << "num_cached_nodes vs real_num_cached_node: "
       << _num_cached_nodes << " " << real_num_cached_node << std::endl;
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
     for (size_t i = 0; i < real_num_cached_node; i++) {
@@ -200,9 +200,32 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
     tmp_cpu_hashtable[i] = Constant::kEmptyKey;
   }
   // 2. Populate the cpu hashtable
+  if (RunConfig::ics22_compact_mode) {
+    auto ics22_dist_graph = dynamic_cast<ICS22SongDistGraph*>(_dist_graph);
+    CHECK(ics22_dist_graph != nullptr);
+    CHECK(ics22_dist_graph->GetIdxMap(sampler_ctx)->Ctx().device_type
+        == DeviceType::kCPU);
+    CHECK(ics22_dist_graph->GetDeviceMap(sampler_ctx)->Ctx().device_type
+        == DeviceType::kCPU);
+    auto idx_map_data = ics22_dist_graph->GetIdxMap(sampler_ctx)
+                          ->CPtr<IdType>();
+    auto device_map_data = ics22_dist_graph->GetDeviceMap(sampler_ctx)
+                              ->CPtr<IdType>();
+    IdType device_mask = (1 << RunConfig::ics22_compact_bitwidth) - 1;
+    IdType shift_width = (sizeof(IdType) * 8
+                            - RunConfig::ics22_compact_bitwidth);
+    CHECK((real_num_cached_node & (device_mask << shift_width)) == 0);
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
-  for (size_t i = 0; i < real_num_cached_node; i++) {
-    tmp_cpu_hashtable[part_cache_rank_node[i]] = i;
+    for (size_t i = 0; i < real_num_cached_node; i++) {
+      IdType tmp_node = part_cache_rank_node[i];
+      tmp_cpu_hashtable[tmp_node] = ((device_map_data[tmp_node] << shift_width)
+                                     | idx_map_data[tmp_node]);
+    }
+  } else {
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+    for (size_t i = 0; i < real_num_cached_node; i++) {
+      tmp_cpu_hashtable[part_cache_rank_node[i]] = i;
+    }
   }
 
   // 3. Load the feature cache

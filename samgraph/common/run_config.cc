@@ -96,6 +96,8 @@ bool                 RunConfig::use_dist_graph                 = false;
 bool                 RunConfig::use_ics22_song_solver          = false;
 int                  RunConfig::clique_size                    = 0;
 double               RunConfig::ics22_song_alpha               = 0.0f;
+bool                 RunConfig::ics22_compact_mode             = true;
+int                  RunConfig::ics22_compact_bitwidth         = 3;
 double               RunConfig::dist_graph_percentage          = 0.0f;
 int                  RunConfig::dist_graph_part_cpu            = 0;
 

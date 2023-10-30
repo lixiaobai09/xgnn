@@ -108,6 +108,8 @@ struct RunConfig {
   static bool                 use_ics22_song_solver;
   static int                  clique_size;
   static double               ics22_song_alpha;
+  static bool                 ics22_compact_mode;
+  static int                  ics22_compact_bitwidth;
   // store how much to GPUs
   static double               dist_graph_percentage;
   static int                  dist_graph_part_cpu;

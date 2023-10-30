@@ -121,7 +121,7 @@ __global__ void get_miss_index(const IdType *hashtable, const IdType *nodes,
   // }
 }
 
-template <size_t BLOCK_SIZE, size_t TILE_SIZE, bool ICS22_SOLVER = false>
+template <size_t BLOCK_SIZE, size_t TILE_SIZE, bool ORIGIN_ICS22_SOLVER = false>
 __global__ void get_cache_index(const IdType *hashtable, const IdType *nodes,
                                 const size_t num_nodes,
                                 IdType *output_cache_dst_index,
@@ -154,7 +154,7 @@ __global__ void get_cache_index(const IdType *hashtable, const IdType *nodes,
       // new node ID in subgraph
       output_cache_dst_index[pos] = index;
       // old node ID in original graph
-      if (ICS22_SOLVER == false) {
+      if (ORIGIN_ICS22_SOLVER == false) {
         output_cache_src_index[pos] = hashtable[nodes[index]];
       } else {
         output_cache_src_index[pos] = nodes[index];
@@ -403,7 +403,8 @@ void GPUCacheManager::GetMissCacheIndex(
           output_miss_src_index, miss_prefix_counts);
   sampler_device->StreamSync(_sampler_ctx, stream);
 
-  if (RunConfig::use_ics22_song_solver) {
+  if (RunConfig::use_ics22_song_solver
+      && (RunConfig::ics22_compact_mode == false)) {
     get_cache_index<Constant::kCudaBlockSize, Constant::kCudaTileSize, true>
         <<<grid, block, 0, cu_stream>>>(
             _sampler_gpu_hashtable, nodes, num_nodes, output_cache_dst_index,

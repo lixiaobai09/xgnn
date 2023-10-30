@@ -141,6 +141,7 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
         break;
       }
     }
+    std::cout << "i: " << i << std::endl;
     total_cached_node = num_cached_node + i;
   }
 };
@@ -271,14 +272,28 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
         sizeof(void*) * _ctxes.size(),
         cudaMemcpyDefault));
   // move map structure to GPU
-  _d_device_map_tensor = Tensor::CopyTo(_h_device_map_vec[trainer_id],
-      trainer_ctx, stream, Constant::kAllocNoScale);
-  _d_new_idx_map_tensor = Tensor::CopyTo(_h_new_idx_map_vec[trainer_id],
-      trainer_ctx, stream, Constant::kAllocNoScale);
+  if (RunConfig::ics22_compact_mode == false) {
+    _d_device_map_tensor = Tensor::CopyTo(_h_device_map_vec[trainer_id],
+        trainer_ctx, stream, Constant::kAllocNoScale);
+    _d_new_idx_map_tensor = Tensor::CopyTo(_h_new_idx_map_vec[trainer_id],
+        trainer_ctx, stream, Constant::kAllocNoScale);
+  } else {
+    _d_new_idx_map_tensor = nullptr;
+    _d_device_map_tensor = nullptr;
+  }
 }
 
 DeviceICS22SongDistFeature ICS22SongDistGraph::DeviceFeatureHandle() const {
   CHECK(_feat_dim != 0);
+  if (RunConfig::ics22_compact_mode == true) {
+    return DeviceICS22SongDistFeature(
+        _d_part_feature,
+        nullptr,
+        nullptr,
+        _num_node,
+        _feat_dim,
+        RunConfig::ics22_compact_bitwidth);
+  }
   return DeviceICS22SongDistFeature(
       _d_part_feature,
       _d_device_map_tensor->Ptr<IdType>(),
