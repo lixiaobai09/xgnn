@@ -200,7 +200,7 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
     tmp_cpu_hashtable[i] = Constant::kEmptyKey;
   }
   // 2. Populate the cpu hashtable
-  if (RunConfig::ics22_compact_mode) {
+  if (RunConfig::use_ics22_song_solver && RunConfig::ics22_compact_mode) {
     auto ics22_dist_graph = dynamic_cast<ICS22SongDistGraph*>(_dist_graph);
     CHECK(ics22_dist_graph != nullptr);
     CHECK(ics22_dist_graph->GetIdxMap(sampler_ctx)->Ctx().device_type
