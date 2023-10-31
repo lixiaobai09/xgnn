@@ -172,7 +172,8 @@ template <size_t BLOCK_SIZE, size_t TILE_SIZE>
 __global__ void count_local_cache(const IdType *cache_src_index, const IdType num_cache, 
                                   IdType *prefix_count,
                                   const long local_part_map,
-                                  const size_t num_part) {
+                                  const size_t num_part,
+                                  const IdType compact_bitwidth) {
   size_t start = blockIdx.x * TILE_SIZE;
   size_t end = start + TILE_SIZE;
 
@@ -183,7 +184,12 @@ __global__ void count_local_cache(const IdType *cache_src_index, const IdType nu
 #pragma unroll
   for (size_t i = start + threadIdx.x; i < end; i += BLOCK_SIZE) {
     if (i < num_cache) {
-      int part_id = (cache_src_index[i] % num_part);
+      int part_id;
+      if (compact_bitwidth == 0) {
+        part_id = (cache_src_index[i] % num_part);
+      } else {
+        part_id = (cache_src_index[i] >> compact_bitwidth);
+      }
       if (((1 << part_id) & local_part_map) != 0) {
         local++;
       }
@@ -438,7 +444,10 @@ void GPUCacheManager::CountLocalCache(size_t task_key,
                                       const IdType *cache_src_index, 
                                       const size_t num_cache, const size_t num_nodes,
                                       StreamHandle stream) {
-  CHECK(RunConfig::run_arch == kArch6 && RunConfig::part_cache);
+  CHECK(RunConfig::run_arch == kArch6
+        && (RunConfig::part_cache
+            || (RunConfig::use_ics22_song_solver
+                && RunConfig::ics22_compact_mode)));
   auto sampler_device = Device::Get(_sampler_ctx);
   auto cu_stream = static_cast<cudaStream_t>(stream);
   const dim3 grid(RoundUpDiv((size_t)num_cache, Constant::kCudaTileSize));
@@ -450,18 +459,39 @@ void GPUCacheManager::CountLocalCache(size_t task_key,
   // check long type can be used for device map(local_part_map)
   static_assert(sizeof(long) * 8 >= kMaxDevice);
 
+  long local_part_map = 0;
+  if (RunConfig::part_cache) {
+    // get the local_part_map and num_part
+    DistGraph::GroupConfig group_cfg = _dist_graph->GetGroupConfig(
+        _trainer_ctx.device_id);
+    size_t num_part = group_cfg.ctx_group.size();
+    for (IdType part_id : group_cfg.part_ids) {
+      local_part_map = (local_part_map | (1l << part_id));
+    }
+  } else if (RunConfig::use_ics22_song_solver
+             && RunConfig::ics22_compact_mode) {
+    IdType device_id = _sampler_ctx.device_id;
+    local_part_map = (1l << device_id);
+  }
   // get the local_part_map and num_part
   DistGraph::GroupConfig group_cfg = _dist_graph->GetGroupConfig(
       _trainer_ctx.device_id);
-  long local_part_map = 0;
   size_t num_part = group_cfg.ctx_group.size();
   for (IdType part_id : group_cfg.part_ids) {
     local_part_map = (local_part_map | (1l << part_id));
   }
-  count_local_cache<Constant::kCudaBlockSize, Constant::kCudaTileSize>
-      <<<grid, block, 0, cu_stream>>>(
-        cache_src_index, num_cache, local_cache_counts,
-        local_part_map, num_part);
+  if (RunConfig::part_cache) {
+    count_local_cache<Constant::kCudaBlockSize, Constant::kCudaTileSize>
+        <<<grid, block, 0, cu_stream>>>(
+          cache_src_index, num_cache, local_cache_counts,
+          local_part_map, num_part, 0);
+  } else {
+    count_local_cache<Constant::kCudaBlockSize, Constant::kCudaTileSize>
+        <<<grid, block, 0, cu_stream>>>(
+          cache_src_index, num_cache, local_cache_counts,
+          local_part_map, num_part,
+          (sizeof(IdType) * 8 - RunConfig::ics22_compact_bitwidth));
+  }
   sampler_device->StreamSync(_sampler_ctx, stream);
 
   size_t workspace_sz;
@@ -487,7 +517,7 @@ void GPUCacheManager::CountLocalCache(size_t task_key,
   sampler_device->FreeWorkspace(_sampler_ctx, local_cache_counts_prefix_sum);
   sampler_device->FreeWorkspace(_sampler_ctx, workspace);
 
-  Profiler::Get().LogEpochAdd(task_key, kLogEpochLocalCacheBytes, 
+  Profiler::Get().LogEpochAdd(task_key, kLogEpochLocalCacheBytes,
       GetTensorBytes(_dtype, {num_local_cache, _dim}));
 }
 

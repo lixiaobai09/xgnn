@@ -260,7 +260,7 @@ def run(worker_id, run_config):
             epoch, sam.kLogEpochMissBytes)
         epoch_cache_hit_rates.append(
             (feat_nbytes - miss_nbytes) / feat_nbytes)
-        if run_config['part_cache']:
+        if run_config['part_cache'] or run_config['use_ics22_song_solver']:
             local_cache_nbytes = sam.get_log_epoch_value(epoch, sam.kLogEpochLocalCacheBytes)
             epoch_cache_local_hit_rates.append(local_cache_nbytes / feat_nbytes)
         epoch_sample_total_times.append(
@@ -305,7 +305,7 @@ def run(worker_id, run_config):
 
     print('[Train  Worker {:d}] Avg Epoch {:.4f} | Sample {:.4f} | Copy {:.4f} | Train Total (Profiler) {:.4f}'.format(
           worker_id, np.mean(epoch_total_times_python[1:]), np.mean(epoch_sample_total_times[1:]), np.mean(epoch_copy_times[1:]), np.mean(epoch_train_total_times_profiler[1:])))
-    if run_config['part_cache']:
+    if run_config['part_cache'] or run_config['use_ics22_song_solver']:
         print('[Train Worker {}] Partition Cache Hit Rate {:.2f} | Local Hit Rate {:.2f}'.format(
             worker_id, np.mean(epoch_cache_hit_rates[1:]), np.mean(epoch_cache_local_hit_rates[1:])))
 
