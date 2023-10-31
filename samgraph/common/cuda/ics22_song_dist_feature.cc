@@ -67,6 +67,7 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
     origin_new_idx_tensor_data[i] = Constant::kEmptyKey;
     ranking_tensor_data[i] = std::get<1>(sample_idx_vec[i]);
   }
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
   for (IdType i = 0; i < num_cached_node; ++i) {
     origin_new_idx_tensor_data[std::get<1>(sample_idx_vec[i])] = i;
     origin_cached_tensor_data[i] = std::get<1>(sample_idx_vec[i]);
@@ -84,36 +85,40 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
     device_map_vec[device_id] = Tensor::Empty(dtype, {num_node},
         cpu_ctx, "device map of nodes in device " + std::to_string(device_id));
     auto device_map = device_map_vec[device_id]->Ptr<IdType>();
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
     for (IdType i = 0; i < num_node; ++i) {
       device_map[i] = Constant::kEmptyKey;
     }
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
     for (IdType i = 0; i < num_cached_node; ++i) {
       device_map[std::get<1>(sample_idx_vec[i])] = device_id;
     }
   }
   total_cached_node = num_cached_node;
   if (clique_size == 1) return;
-  std::vector<SortType> p_accum(clique_size);
-  for (IdType i = 0; i < clique_size; ++i) {
-    p_accum[i] = {0.0, i};
-  }
-  auto _GetDeviceOrder = [&p_accum]() {
-    std::sort(p_accum.begin(), p_accum.end());
+  std::vector<double> p_accum(clique_size, 0.0);
+  auto _GetDeviceOrder = [](const std::vector<double> &p_accum) {
+    std::vector<SortType> tmp_vec;
+    tmp_vec.reserve(p_accum.size());
+    for (IdType i = 0; i < p_accum.size(); ++i) {
+      tmp_vec.emplace_back(p_accum[i], i);
+    }
+    std::sort(tmp_vec.begin(), tmp_vec.end());
     std::vector<IdType> ret(p_accum.size());
     for (IdType i = 0; i < p_accum.size(); ++i) {
-      ret[i] = std::get<1>(p_accum[i]);
+      ret[i] = std::get<1>(tmp_vec[i]);
     }
     return ret;
   };
-  std::vector<IdType> device_idx_order = _GetDeviceOrder();
+  std::vector<IdType> device_idx_order = _GetDeviceOrder(p_accum);
   IdType last_i = (num_node - num_cached_node);
   IdType num_cliques = (ctxes.size() / clique_size);
-  LOG(DEBUG) << "Start to replacement";
+  LOG(DEBUG) << "Start to replacement with num_cliques=" << num_cliques;
   {
     IdType i = 0;
     for (; i < last_i; ++i) {
       if (i % (clique_size - 1) == 0) {
-        device_idx_order = _GetDeviceOrder();
+        device_idx_order = _GetDeviceOrder(p_accum);
       }
       IdType candidate_node = std::get<1>(sample_idx_vec[num_cached_node + i]);
       IdType new_node_idx = num_cached_node - 1 - (i / (clique_size - 1));
@@ -123,7 +128,7 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
       IdType node_to_be_replaced = std::get<1>(sample_idx_vec[new_node_idx]);
       if (sample_prob[candidate_node] >= alpha * sample_prob[node_to_be_replaced]) {
         IdType cur_dev_idx = device_idx_order[i % (clique_size - 1)];
-        std::get<0>(p_accum[cur_dev_idx]) += sample_prob[candidate_node];
+        p_accum[cur_dev_idx] += sample_prob[candidate_node];
         // for each clique
         for (IdType j = 0; j < num_cliques; ++j) {
           for (IdType k = 0; k < clique_size; ++k) {
@@ -146,6 +151,17 @@ void ICS22SongPlacementSolver(const std::vector<double> &sample_prob,
     }
     std::cout << "i: " << i << std::endl;
     total_cached_node = num_cached_node + i;
+    /*
+    for (auto ctx : ctxes) {
+      auto device_id = ctx.device_id;
+      double sample_prob_total = 0.0;
+      auto device_cached_nodes_data = device_cached_nodes_vec[device_id]->CPtr<IdType>();
+      for (IdType j = 0; j < total_cached_node; ++j) {
+        sample_prob_total += sample_prob[device_cached_nodes_data[j]];
+      }
+      std::cout << "device " << device_id << ": " << sample_prob_total << std::endl;
+    }
+    */
   }
 };
 
