@@ -172,7 +172,8 @@ ICS22SongDistGraph::ICS22SongDistGraph(std::vector<Context> ctxes,
     const Dataset *dataset,
     const double alpha,
     IdType num_feature_cached_node)
-  : DistGraph(ctxes) {
+  : DistGraph(ctxes),
+    _clique_size(clique_size) {
   std::stringstream ss;
   ss << "[ ";
   for (const auto &ctx : ctxes) {
@@ -228,6 +229,7 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
     const void* cpu_src_feature_data,
     StreamHandle stream) {
 
+  LOG(DEBUG) << "ICS22SongDistGraph: start to load feature data";
   CHECK(trainer_ctx.device_id == trainer_id);
   _trainer_id = trainer_id;
   _feat_dim = dim;
@@ -236,7 +238,6 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
   CHECK(num_cache_node == num_cached_node) << "check num_cache_node";
   auto cached_node_data
          = _h_device_cached_nodes_vec[trainer_id]->CPtr<IdType>();
-  _part_feature.resize(_ctxes.size(), nullptr);
   auto tmp_cpu_feature_tensor = Tensor::Empty(dtype,
       {num_cached_node, _feat_dim}, CPU(),
       "feature cache in device " + std::to_string(trainer_id));
@@ -254,7 +255,7 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
       trainer_ctx, stream, Constant::kAllocNoScale);
   CHECK(trainer_ctx.device_type == DeviceType::kGPU)
       << "Trainer context should be GPU";
-  _part_feature.resize(_ctxes.size(), nullptr);
+  _part_feature.resize(_ctxes.size(), Tensor::Null());
   _part_feature[trainer_id] = trainer_feat_tensor;
   { // IPC share pointers
     {
@@ -264,7 +265,10 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
       CUDA_CALL(cudaIpcGetMemHandle(&mem_handle, (void*)feature_data));
     }
     _Barrier();
-    for (auto ctx : _ctxes) {
+    IdType start_j = (trainer_id / _clique_size * _clique_size);
+    IdType end_j = start_j + _clique_size;
+    for (IdType j = start_j; j < end_j; ++j) {
+      auto ctx = _ctxes[j];
       if (ctx.device_id == trainer_id) {
         continue;
       }
@@ -300,6 +304,7 @@ void ICS22SongDistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
     _d_new_idx_map_tensor = nullptr;
     _d_device_map_tensor = nullptr;
   }
+  LOG(DEBUG) << "ICS22SongDistGraph: load feature data successfully";
 }
 
 DeviceICS22SongDistFeature ICS22SongDistGraph::DeviceFeatureHandle() const {
