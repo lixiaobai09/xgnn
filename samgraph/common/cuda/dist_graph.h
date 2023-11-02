@@ -255,6 +255,7 @@ class DistGraph {
   IdType _feat_dim;
   std::vector<TensorPtr> _part_feature;
   void **_d_part_feature;
+  std::vector<Context> _ctxes;
 
   DistGraph(std::vector<Context> ctxes);
   virtual ~DistGraph() { LOG(ERROR) << "Do not call function in here"; };

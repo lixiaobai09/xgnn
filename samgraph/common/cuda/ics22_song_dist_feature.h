@@ -89,7 +89,6 @@ class ICS22SongDistGraph : public DistGraph {
       const double alpha,
       IdType num_feature_cached_node);
 
-  std::vector<Context> _ctxes;
   std::vector<TensorPtr> _h_device_map_vec;
   std::vector<TensorPtr> _h_new_idx_map_vec;
   std::vector<TensorPtr> _h_device_cached_nodes_vec;
