@@ -97,6 +97,7 @@ class ICS22SongDistGraph : public DistGraph {
   TensorPtr _d_new_idx_map_tensor;
   TensorPtr _ranking_node_tensor;
   IdType _total_cached_node;
+  IdType _clique_size;
 };
 
 } // cuda
