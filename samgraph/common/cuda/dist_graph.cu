@@ -315,8 +315,6 @@ void DistGraph::GraphLoad(Dataset *dataset, int sampler_id,
   _num_graph_cache_node = num_cache_node;
   _num_node = dataset->num_node;
 
-  std::cout << " ----------------- 1 --------------------- " << std::endl;
-
   auto part_ids = _group_configs[sampler_id].part_ids;
   auto ctx_group = _group_configs[sampler_id].ctx_group;
   IdType num_part = ctx_group.size();
@@ -391,7 +389,6 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
     DataType dtype, size_t dim,
     const void* cpu_src_feature_data,
     StreamHandle stream) {
-  std::cout << " ----------------- 2 --------------------- " << std::endl;
 #if 1 // used for clique policy
   if (_ctxes.size() == 4) {
     PartitionSolver solver(_ctxes);
@@ -533,7 +530,7 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
 DeviceDistGraph DistGraph::DeviceGraphHandle() const {
   return DeviceDistGraph(
       _d_part_indptr, _d_part_indices,
-      _group_configs[_sampler_id].ctx_group.size(),
+      _part_indptr.size(),
       _num_graph_cache_node,
       _num_node);
 }
@@ -542,7 +539,7 @@ DeviceDistFeature DistGraph::DeviceFeatureHandle() const {
   CHECK(_feat_dim != 0);
   return DeviceDistFeature(
       _d_part_feature,
-      _group_configs[_trainer_id].ctx_group.size(),
+      _part_feature.size(),
       _num_feature_cache_node,
       _feat_dim);
 }
