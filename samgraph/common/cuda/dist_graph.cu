@@ -389,7 +389,7 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
     DataType dtype, size_t dim,
     const void* cpu_src_feature_data,
     StreamHandle stream) {
-#if 1 // used for clique policy
+#if 0 // used for clique policy
   if (_ctxes.size() == 4) {
     PartitionSolver solver(_ctxes);
     auto nvlink_matrix = solver.GetLinkTopoInfo()->nvlink_matrix;
@@ -418,6 +418,7 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
   }
   if (_ctxes.size() == 6) {
     _group_configs.clear();
+    /*
     _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1, 2},
       {GPU(0), GPU(0), GPU(0), GPU(1), GPU(1), GPU(1),
        GPU(2), GPU(2), GPU(2), GPU(3), GPU(3), GPU(3)}));
@@ -430,6 +431,21 @@ void DistGraph::FeatureLoad(int trainer_id, Context trainer_ctx,
     _group_configs.emplace_back(GroupConfig(GPU(3), {9, 10 ,11},
       {GPU(0), GPU(0), GPU(0), GPU(1), GPU(1), GPU(1),
        GPU(2), GPU(2), GPU(2), GPU(3), GPU(3), GPU(3)}));
+    */
+
+    _group_configs.emplace_back(GroupConfig(GPU(0), {0, 1, 2, 3, 4, 5},
+      {GPU(0), GPU(0), GPU(0), GPU(0), GPU(0), GPU(0),
+       GPU(1), GPU(1), GPU(1), GPU(1), GPU(1), GPU(1)}));
+    _group_configs.emplace_back(GroupConfig(GPU(1), {6, 7, 8, 9, 10, 11},
+      {GPU(0), GPU(0), GPU(0), GPU(0), GPU(0), GPU(0),
+       GPU(1), GPU(1), GPU(1), GPU(1), GPU(1), GPU(1)}));
+
+    _group_configs.emplace_back(GroupConfig(GPU(2), {0, 1, 2, 3, 4, 5},
+      {GPU(2), GPU(2), GPU(2), GPU(2), GPU(2), GPU(2),
+       GPU(3), GPU(3), GPU(3), GPU(3), GPU(3), GPU(3)}));
+    _group_configs.emplace_back(GroupConfig(GPU(3), {6, 7, 8, 9, 10, 11},
+      {GPU(2), GPU(2), GPU(2), GPU(2), GPU(2), GPU(2),
+       GPU(3), GPU(3), GPU(3), GPU(3), GPU(3), GPU(3)}));
 
     _group_configs.emplace_back(GroupConfig(GPU(4), {0, 1, 2, 3, 4, 5},
       {GPU(4), GPU(4), GPU(4), GPU(4), GPU(4), GPU(4),
