@@ -28,6 +28,7 @@
 #include "../run_config.h"
 #include "../timer.h"
 #include "cuda_cache_manager.h"
+#include "ics22_song_dist_feature.h"
 #include "../profiler.h"
 
 namespace samgraph {
@@ -143,8 +144,8 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
     _dtype(dtype),
     _dim(dim),
     _cpu_src_data(cpu_src_data),
-    _dist_graph(dist_graph),
-    _trainer_cache_data(nullptr)
+    _trainer_cache_data(nullptr),
+    _dist_graph(dist_graph)
 {
   Timer t;
 
@@ -156,16 +157,36 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
   auto cpu_device = Device::Get(CPU());
   auto sampler_device = Device::Get(sampler_ctx);
 
-  IdType *part_cache_rank_node = cpu_device->AllocArray<IdType>(CPU(), sizeof(IdType) * _num_nodes);
-#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
-  for (size_t i = 0; i < _num_nodes; i++) {
-    part_cache_rank_node[i] = nodes[i];
-  }
+  IdType *part_cache_rank_node = cpu_device->AllocArray<IdType>(
+      CPU(), sizeof(IdType) * _num_nodes);
+  IdType real_num_cached_node = _num_cached_nodes;
   // each worker see same ranking nodes
-  std::mt19937 eg(_num_cached_nodes);
-  std::shuffle(part_cache_rank_node, part_cache_rank_node + _num_cached_nodes, eg);
+  if (RunConfig::use_ics22_song_solver == false) {
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+    for (size_t i = 0; i < _num_nodes; i++) {
+      part_cache_rank_node[i] = nodes[i];
+    }
+    std::mt19937 eg(real_num_cached_node);
+    std::shuffle(part_cache_rank_node,
+        part_cache_rank_node + real_num_cached_node, eg);
+  } else {
+    CHECK(RunConfig::cache_policy == CachePolicy::kCacheByDegree)
+      << "ics22_song_solver only support degree at present platform";
+    LOG(DEBUG) << "GPUCacheManager: use ics22_song_solver";
+    auto ics22_dist_graph = dynamic_cast<ICS22SongDistGraph*>(_dist_graph);
+    CHECK(ics22_dist_graph != nullptr);
+    auto ranking_node = ics22_dist_graph->GetRankingNode()->CPtr<IdType>();
+    real_num_cached_node = ics22_dist_graph->GetRealCachedNodeNum();
+    std::cout << "num_cached_nodes vs real_num_cached_node: "
+      << _num_cached_nodes << " " << real_num_cached_node << std::endl;
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+    for (size_t i = 0; i < real_num_cached_node; i++) {
+      // std::cout << "rank node " << i << " " << ranking_node[i] << std::endl;
+      part_cache_rank_node[i] = ranking_node[i];
+    }
+  }
   LOG(DEBUG) << "use partition cache, collective cache percent " << _cache_percentage * 100 << "%"
-            << " num cached nodes " << _num_cached_nodes;
+            << " num cached nodes " << real_num_cached_node;
 
   IdType *tmp_cpu_hashtable = static_cast<IdType *>(
       cpu_device->AllocDataSpace(CPU(), sizeof(IdType) * _num_nodes));
@@ -173,17 +194,38 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
       static_cast<IdType *>(sampler_device->AllocDataSpace(
           _sampler_ctx, sizeof(IdType) * _num_nodes));
 
-  _cache_nbytes = GetTensorBytes(_dtype, {_num_cached_nodes, _dim});
-
   // 1. Initialize the cpu hashtable
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
   for (size_t i = 0; i < _num_nodes; i++) {
     tmp_cpu_hashtable[i] = Constant::kEmptyKey;
   }
   // 2. Populate the cpu hashtable
+  if (RunConfig::use_ics22_song_solver && RunConfig::ics22_compact_mode) {
+    auto ics22_dist_graph = dynamic_cast<ICS22SongDistGraph*>(_dist_graph);
+    CHECK(ics22_dist_graph != nullptr);
+    CHECK(ics22_dist_graph->GetIdxMap(sampler_ctx)->Ctx().device_type
+        == DeviceType::kCPU);
+    CHECK(ics22_dist_graph->GetDeviceMap(sampler_ctx)->Ctx().device_type
+        == DeviceType::kCPU);
+    auto idx_map_data = ics22_dist_graph->GetIdxMap(sampler_ctx)
+                          ->CPtr<IdType>();
+    auto device_map_data = ics22_dist_graph->GetDeviceMap(sampler_ctx)
+                              ->CPtr<IdType>();
+    IdType device_mask = (1 << RunConfig::ics22_compact_bitwidth) - 1;
+    IdType shift_width = (sizeof(IdType) * 8
+                            - RunConfig::ics22_compact_bitwidth);
+    CHECK((real_num_cached_node & (device_mask << shift_width)) == 0);
 #pragma omp parallel for num_threads(RunConfig::omp_thread_num)
-  for (size_t i = 0; i < _num_cached_nodes; i++) {
-    tmp_cpu_hashtable[part_cache_rank_node[i]] = i;
+    for (size_t i = 0; i < real_num_cached_node; i++) {
+      IdType tmp_node = part_cache_rank_node[i];
+      tmp_cpu_hashtable[tmp_node] = ((device_map_data[tmp_node] << shift_width)
+                                     | idx_map_data[tmp_node]);
+    }
+  } else {
+#pragma omp parallel for num_threads(RunConfig::omp_thread_num)
+    for (size_t i = 0; i < real_num_cached_node; i++) {
+      tmp_cpu_hashtable[part_cache_rank_node[i]] = i;
+    }
   }
 
   // 3. Load the feature cache
@@ -201,6 +243,8 @@ GPUCacheManager::GPUCacheManager(IdType worker_id,
   cpu_device->FreeDataSpace(CPU(), tmp_cpu_hashtable);
   cpu_device->FreeWorkspace(CPU(), part_cache_rank_node);
 
+
+  _cache_nbytes = GetTensorBytes(_dtype, {_num_cached_nodes, _dim});
   LOG(INFO) << "Partition GPU cache (policy: " << RunConfig::cache_policy << ") "
             << "global cache: "
             << _num_cached_nodes << " / " << _num_nodes << " nodes ( "

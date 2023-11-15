@@ -113,6 +113,10 @@ def parse_args(default_run_config):
                            default=default_run_config['dropout'])
     argparser.add_argument('--use-dist-graph', type=float,
                            default=0.0)
+    argparser.add_argument('--use-ics22-song-solver', action='store_true',
+                           default=False)
+    argparser.add_argument('--clique-size', type=int, default=0)
+    argparser.add_argument('--ics22-song-alpha', type=float, default=0.0)
 
     argparser.add_argument('--unified-memory', action='store_true',
                            default=False)

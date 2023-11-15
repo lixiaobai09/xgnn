@@ -38,6 +38,7 @@
 #include "timer.h"
 #include "cuda/cuda_engine.h"
 #include "cuda/dist_graph.h"
+#include "cuda/ics22_song_dist_feature.h"
 #include "dist/dist_engine.h"
 
 namespace samgraph {
@@ -207,6 +208,25 @@ void samgraph_config_from_map(std::unordered_map<std::string, std::string>& conf
     } else {
       LOG(FATAL) << "partition cache can only be used in arch6";
     }
+  }
+
+  if (configs.count("clique_size") > 0) {
+    RC::clique_size = std::stoi(configs["clique_size"]);
+  }
+
+  if (configs.count("ics22_song_alpha") > 0) {
+    RC::ics22_song_alpha = std::stod(configs["ics22_song_alpha"]);
+  }
+
+  if (configs.count("use_ics22_song_solver") > 0
+      && configs["use_ics22_song_solver"] == "True") {
+    CHECK(RC::use_dist_graph == true)
+      << "use ics22_song_solver need to open dist_graph";
+    CHECK(RC::part_cache == false)
+      << "use ics22_song_solver need to close part cache";
+    CHECK(RC::clique_size > 0)
+      << "use ics22_song_solver need to set clique size";
+    RC::use_ics22_song_solver = true;
   }
 
   if (configs.count("gpu_extract") > 0 && configs["gpu_extract"] == "True") {
@@ -492,12 +512,21 @@ void samgraph_data_init() {
   Engine::Get()->Init();
 
   if (RunConfig::run_arch == kArch6
-      && (RunConfig::use_dist_graph || RunConfig::part_cache)) {
+      && (RunConfig::use_dist_graph
+          || RunConfig::part_cache
+          || RunConfig::use_ics22_song_solver)) {
     std::vector<Context> ctxes(RunConfig::num_worker);
-    for (int i = 0; i < RunConfig::num_worker; ++i) {
+    for (int i = 0; i < static_cast<int>(RunConfig::num_worker); ++i) {
       ctxes[i] = Context{kGPU, i};
     }
-    cuda::DistGraph::Create(ctxes);
+    if (RunConfig::use_dist_graph && RunConfig::use_ics22_song_solver) {
+      cuda::ICS22SongDistGraph::Create(ctxes, RunConfig::clique_size,
+          Engine::Get()->GetGraphDataset(),
+          RunConfig::ics22_song_alpha,
+          RunConfig::cache_percentage * Engine::Get()->GetGraphDataset()->num_node);
+    } else {
+      cuda::DistGraph::Create(ctxes);
+    }
   }
 
   LOG(INFO) << "SamGraph data has been initialized successfully";

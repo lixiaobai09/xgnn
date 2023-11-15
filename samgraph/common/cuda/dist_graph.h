@@ -233,7 +233,7 @@ class DistGraph {
   }
   void GraphLoad(Dataset *dataset, int sampler_id, Context sampler_ctx,
       IdType num_cache_node);
-  void FeatureLoad(int trainer_id, Context trainer_ctx,
+  virtual void FeatureLoad(int trainer_id, Context trainer_ctx,
       const IdType *cache_rank_node, const IdType num_cache_node,
       DataType dtype, size_t dim,
       const void* cpu_src_feature_data,
@@ -248,14 +248,31 @@ class DistGraph {
     return _inst;
   }
 
+ protected:
+  IdType _trainer_id;
+  IdType _num_feature_cache_node;
+  IdType _num_node;
+  IdType _feat_dim;
+  std::vector<TensorPtr> _part_feature;
+  void **_d_part_feature;
+  std::vector<Context> _ctxes;
+
+  DistGraph(std::vector<Context> ctxes);
+  virtual ~DistGraph() { LOG(ERROR) << "Do not call function in here"; };
+
+  struct SharedData {
+    pthread_barrier_t barrier;
+    cudaIpcMemHandle_t mem_handle[kMaxDevice][kMaxDevice];
+  };
+  SharedData *_shared_data;
+  void _Barrier();
+  static std::shared_ptr<DistGraph> _inst;
+
  private:
   DistGraph() = delete;
   DistGraph(const DistGraph &) = delete;
   DistGraph& operator = (const DistGraph &) = delete;
-  ~DistGraph() = delete;
 
-  DistGraph(std::vector<Context> ctxes);
-  void _Barrier();
   void _DatasetPartition(const Dataset *dataset, Context ctx,
     IdType part_id, IdType num_part, IdType num_part_node);
   void _DataIpcShare(std::vector<TensorPtr> &part_data,
@@ -268,25 +285,12 @@ class DistGraph {
   int _sampler_id;
   std::vector<TensorPtr> _part_indptr;
   std::vector<TensorPtr> _part_indices;
-  std::vector<TensorPtr> _part_feature;
   std::vector<GroupConfig> _group_configs;
   IdType _num_graph_cache_node;
-  IdType _num_node;
-  IdType _trainer_id;
-  IdType _num_feature_cache_node;
-  IdType _feat_dim;
 
   IdType **_d_part_indptr;
   IdType **_d_part_indices;
-  void **_d_part_feature;
 
-  struct SharedData {
-    pthread_barrier_t barrier;
-    cudaIpcMemHandle_t mem_handle[kMaxDevice][kMaxDevice];
-  };
-  SharedData *_shared_data;
-
-  static std::shared_ptr<DistGraph> _inst;
 };
 
 class PartitionSolver {
