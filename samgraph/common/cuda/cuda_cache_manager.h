@@ -92,7 +92,7 @@ class GPUCacheManager {
 
   IdType* _sampler_gpu_hashtable;
 
-  DistGraph *_dist_graph = nullptr;
+  DistGraph *_dist_graph;
 };
 
 class GPUDynamicCacheManager {

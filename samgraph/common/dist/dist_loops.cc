@@ -1046,7 +1046,8 @@ void DoArch6GetCacheMissIndex(TaskPtr task) {
 
   CHECK_EQ(num_output_miss + num_output_cache, num_input);
 
-  if (RunConfig::part_cache) {
+  if (RunConfig::part_cache
+      || (RunConfig::use_ics22_song_solver && RunConfig::ics22_compact_mode)) {
     cache_manager->CountLocalCache(task->key, trainer_output_cache_src_index,
         num_output_cache, num_input, stream);
   }

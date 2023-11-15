@@ -7,7 +7,7 @@ import os
 model_list = ['graphsage']
 dataset_list = ['tw', 'cf']
 system_list = ['xgnn']
-topo_list = ['4g_1', '4g_2', '8g']
+topo_list = ['4g_1', '4g_2', '6g', '8g']
 
 mock = True
 if (mock):
@@ -58,7 +58,7 @@ if __name__ == '__main__':
     for dataset in dataset_list:
         prefix_str = f"xgnn_graphsage_{dataset}_"
         for topo in topo_list:
-            break_file_name = directory + "/" + prefix_str + topo + "_break.log"
+            break_file_name = directory + "/" + prefix_str + topo + "_ics22_break.log"
             e2e_file_name = directory + "/" + prefix_str + topo + ".log"
             # print("file_name: ", file_name)
             print(f"graphsage\t{dataset}\t{topo}", end="")

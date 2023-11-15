@@ -1,12 +1,12 @@
 /*
  * Copyright 2022 Institute of Parallel and Distributed Systems, Shanghai Jiao Tong University
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  *     http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -124,7 +124,7 @@ std::shared_ptr<DegreeInfo> DegreeInfo::GetDegrees(GraphPtr &graph) {
   std::vector<std::vector<uint32_t>> out_degrees_per_thread(
       num_threads, std::vector<uint32_t>(num_nodes, 0));
 
-#pragma omp parallel for
+#pragma omp parallel for num_threads(Options::num_threads)
   for (uint32_t i = 0; i < num_nodes; i++) {
     uint32_t len = indptr[i + 1] - indptr[i];
     uint32_t off = indptr[i];
@@ -137,7 +137,7 @@ std::shared_ptr<DegreeInfo> DegreeInfo::GetDegrees(GraphPtr &graph) {
     }
   }
 
-#pragma omp parallel for
+#pragma omp parallel for num_threads(Options::num_threads)
   for (uint32_t i = 0; i < num_nodes; i++) {
     for (uint32_t k = 0; k < num_threads; k++) {
       out_degrees[i] += out_degrees_per_thread[k][i];
