@@ -39,8 +39,10 @@ SamGraph is the framework shared by the above system. SGNN is the initial versio
 
 
 ## Paper's Hardware Configuration
-- 8 * NVIDIA V100 GPUs (16GB of memory each)
-- One Intel Xeon Platinum 8163 CPUs (total 32 cores),
+XGNN aims to accelerate GNN training at multi-GPU platforms with high-speed interconnects (like NVLink).
+In our evaluation, XGNN is mainly evaluated at an NVLink platform with
+- 8 * NVIDIA V100 GPUs (16GB of memory each, SXM2)
+- One Intel Xeon Platinum 8163 CPU (total 32 cores),
 - 256GB RAM
 
 
@@ -66,7 +68,7 @@ We use conda to manage our python environment.
 1. We use conda to manage our python environment.
 
     ```bash
-    conda create -n samgraph_env python==3.8 pytorch==1.10.0 torchvision==0.11.0 torchaudio==0.10.0 cudatoolkit=11.3 -c pytorch -c conda-forge -y
+    conda create -n samgraph_env python==3.8 pytorch==1.10.0 torchvision==0.11.0 torchaudio==0.10.0 cudatoolkit=11.3 -c pytorch -c conda-forge -y # install pytorch 1.10
     conda activate samgraph_env
     conda install cudnn numpy scipy networkx tqdm pandas ninja cmake -y # System cmake is too old to build DGL
     sudo apt install gnuplot # Install gnuplot for experiments:
@@ -80,7 +82,7 @@ We use conda to manage our python environment.
     git clone --recursive https://github.com/lixiaobai09/xgnn.git
     ```
 
-3. Install DGL, PyG, and FastGraph. The package FastGraph is used to load datasets for GNN systems in all experiments.
+3. Install DGL and FastGraph. The package FastGraph is used to load datasets for GNN systems in all experiments.
 
     ```bash
     # Install DGL
@@ -122,12 +124,21 @@ unlimited
 unlimited
 ```
 
+### Docker Support
+We provide a Dockerfile to build the experiment image. The file is in the root directory of this repository. Users can use the following command to create a Docker environment.
+
+```bash
+docker build . -t xgnn:1.0 -f ./Dockerfile 
+```
+
+Then users can run tests in Docker.
+```bash
+docker run --ulimit memlock=-1 --rm --gpus all -v ${HOST_DATA_DIR}:/graph-learning -it gnnlab/fgnn:v1.0 bash
+```
 
 ## Dataset Preprocessing
 
 See [`datagen/README.md`](datagen/README.md) to find out how to preprocess datasets.
-
-
 
 ## QuickStart: Use XGNN to train GNN models
 
