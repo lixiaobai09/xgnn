@@ -53,6 +53,7 @@ In our evaluation, XGNN is mainly evaluated at an NVLink platform with
 - Ubuntu 18.04 or Ubuntu 20.04
 - CMake >= 3.14
 - CUDA v11.7
+- NVIDIA GPU Driver v525
 - Python v3.8
 - PyTorch v1.10
 - DGL V0.9.1
@@ -128,12 +129,12 @@ unlimited
 We provide a Dockerfile to build the experiment image. The file is in the root directory of this repository. Users can use the following command to create a Docker environment.
 
 ```bash
-docker build . -t xgnn:1.0 -f ./Dockerfile 
+docker build . -t xgnn:1.0 -f ./Dockerfile
 ```
 
 Then users can run tests in Docker.
 ```bash
-docker run --ulimit memlock=-1 --rm --gpus all -v ${HOST_DATA_DIR}:/graph-learning -it gnnlab/fgnn:v1.0 bash
+docker run --ulimit memlock=-1 --rm --gpus all -v ${HOST_DATA_DIR}:/graph-learning -it xgnn:1.0 bash
 ```
 
 ## Dataset Preprocessing
@@ -150,11 +151,9 @@ cd xgnn/example
 python samgraph/sgnn/train_gcn.py --num-worker 4 --cache-policy degree --sample-type khop3 --batch-size 6000 --num-epoch 10 --dataset papers100M --part-cache --gpu-extract --use-dist-graph 1.0 --cache-percentage 0.64
 ```
 
-
-
 ## Experiments
 
-Our experiments have been automated by scripts (`run.sh`). Each figure or table in our paper is treated as one experiment and is associated with a subdirectory in `xgnn/evaluation`.
+Our experiments have been automated by scripts (`run.sh`). Each figure or table in our paper is treated as one experiment and is associated with a subdirectory in `xgnn/exp`.
 
 
 
