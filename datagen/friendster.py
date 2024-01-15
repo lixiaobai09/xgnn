@@ -67,7 +67,7 @@ def write_gnnlab_meta():
     with open(f'{GNNLAB_OUTPUT_DATA_DIR}/meta.txt', 'w') as f:
         f.write('{}\t{}\n'.format('NUM_NODE', 65608366))
         f.write('{}\t{}\n'.format('NUM_EDGE', 3612134270))
-        f.write('{}\t{}\n'.format('FEAT_DIM', 256))
+        f.write('{}\t{}\n'.format('FEAT_DIM', 140))
         f.write('{}\t{}\n'.format('NUM_CLASS', 100))
         f.write('{}\t{}\n'.format('NUM_TRAIN_SET', 1000000))
         f.write('{}\t{}\n'.format('NUM_VALID_SET', 200000))
