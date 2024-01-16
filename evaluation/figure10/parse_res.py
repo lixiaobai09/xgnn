@@ -76,3 +76,4 @@ if __name__ == '__main__':
                     file_name,
                     ["sample_no_mark", "mark_cache_copy_time", "train_total"])
             print("\t{:.2f}\t{:.2f}".format(ret[0], (ret[1] + ret[2])))
+        print('0')
