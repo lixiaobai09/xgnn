@@ -18,7 +18,7 @@ mkdir -p $log_dir
 
 dataset="twitter"
 # for gcn
-# python ${dgl_dir}/train_gcn.py --batch-size 6000 --devices ${dgl_devices} --num-epoch ${num_epoch} --dataset ${dataset} --use-gpu-sampling --use-uva-feat > ${log_dir}/dgl_gcn_tw.log 2> ${log_dir}/dgl_gcn_tw.log.err
+python ${dgl_dir}/train_gcn.py --batch-size 6000 --devices ${dgl_devices} --num-epoch ${num_epoch} --dataset ${dataset} --use-gpu-sampling --use-uva-feat > ${log_dir}/dgl_gcn_tw.log 2> ${log_dir}/dgl_gcn_tw.log.err
 python ${sgnn_dir}/train_gcn.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop0 --gpu-extract --cache-percentage 0.09 > ${log_dir}/sgnn_gcn_tw.log 2> ${log_dir}/sgnn_gcn_tw.log.err
 python ${sgnn_dir}/train_gcn.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache --gpu-extract --use-dist-graph 1.0 --cache-percentage 0.79 > ${log_dir}/xgnn_gcn_tw.log 2> ${log_dir}/xgnn_gcn_tw.log.err
 # # for graphsage
@@ -118,6 +118,10 @@ python ${sgnn_dir}/train_gcn.py --num-worker ${num_worker} --cache-policy degree
 python ${sgnn_dir}/train_graphsage.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 --num-epoch ${num_epoch} --dataset ${dataset} --sample-type khop3 --part-cache --gpu-extract --use-dist-graph 1.0 --cache-percentage 0.93 > ${log_dir}/xgnn_graphsage_cf_break.log 2> ${log_dir}/xgnn_graphsage_cf_break.log.err
 # for pinsage
 python ${sgnn_dir}/train_pinsage.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 --num-epoch ${num_epoch} --dataset ${dataset} --gpu-extract --part-cache --use-dist-graph 1.0 --cache-percentage 0.28 > ${log_dir}/xgnn_pinsage_cf_break.log 2> ${log_dir}/xgnn_pinsage_cf_break.log.err
+
+
+# parse the results for DGL,DGL+C,XGNN
+python parse_overall.py -d ${log_dir}
 
 
 << EOF
