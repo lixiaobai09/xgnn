@@ -120,6 +120,10 @@ python ${sgnn_dir}/train_graphsage.py --num-worker ${num_worker} --cache-policy 
 python ${sgnn_dir}/train_pinsage.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 --num-epoch ${num_epoch} --dataset ${dataset} --gpu-extract --part-cache --use-dist-graph 1.0 --cache-percentage 0.28 > ${log_dir}/xgnn_pinsage_cf_break.log 2> ${log_dir}/xgnn_pinsage_cf_break.log.err
 
 
+# parse the results for DGL,DGL+C,XGNN
+python parse_overall.py -d ${log_dir}
+
+
 << EOF
 # used for calculate cache pert.
 
