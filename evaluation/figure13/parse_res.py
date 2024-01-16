@@ -7,7 +7,10 @@ import os
 model_list = ['graphsage']
 dataset_list = ['tw', 'cf']
 system_list = ['xgnn']
-topo_list = ['4g_1', '4g_2', '6g', '8g']
+topo_list = [['4g_1', '4G_f'],
+             ['4g_2', '4G_c'],
+             ['6g', '6G'],
+             ['8g', '8G']]
 
 mock = True
 if (mock):
@@ -25,9 +28,13 @@ def parse_args():
     argparser = argparse.ArgumentParser('Acc Timeline Parser')
     argparser.add_argument('-d', '--directory', type=str,
             help='the log file directory path to parse')
+    argparser.add_argument('--dataset', type=str,
+            help=f'the dataset to parse, only in {dataset_list}')
     ret = vars(argparser.parse_args())
     if (ret['directory'] == None):
-        argparser.error('Add --file argument')
+        argparser.error('Add --directory argument')
+    if (ret['dataset'] not in dataset_list):
+        argparser.error('Add --dataset argument')
     return ret
 
 def parse_result_sgnn(file_name, show_list):
@@ -54,20 +61,15 @@ def parse_result_sgnn(file_name, show_list):
 if __name__ == '__main__':
     arguments   = parse_args()
     directory   = arguments['directory']
-    print("model\tdataset\ttopo\tsample_time\textract_time\tcache_ratio\tcache_hit\ttrain_time\te2e")
-    for dataset in dataset_list:
-        prefix_str = f"xgnn_graphsage_{dataset}_"
-        for topo in topo_list:
-            break_file_name = directory + "/" + prefix_str + topo + "_ics22_break.log"
-            e2e_file_name = directory + "/" + prefix_str + topo + ".log"
-            # print("file_name: ", file_name)
-            print(f"graphsage\t{dataset}\t{topo}", end="")
-            ret = parse_result_sgnn(
-                    break_file_name,
-                    ["sample_no_mark", "mark_cache_copy_time", "train_total",
-                     "cache_percentage", "cache_hit_rate"])
-            print("\t{:.2f}\t{:.2f}\t{:d}\t{:d}\t{:.2f}".format(ret[0], ret[1], ret[3], ret[4], ret[2]), end="")
-            ret = parse_result_sgnn(
-                    e2e_file_name,
-                    ["total"])
-            print("\t{:.2f}".format(ret[0]))
+    dataset     = arguments['dataset']
+    print("mode\ttopo\tClique\tSolver\tCliqueOpt")
+    for (log_name, topo_name) in topo_list:
+        file = f"{directory}/xgnn_graphsage_{dataset}_{log_name}_origin_break.log"
+        origin_time = parse_result_sgnn(file, ["mark_cache_copy_time"])[0]
+        file = f"{directory}/xgnn_graphsage_{dataset}_{log_name}_clique_break.log"
+        clique_time = parse_result_sgnn(file, ["mark_cache_copy_time"])[0]
+        file = f"{directory}/xgnn_graphsage_{dataset}_{log_name}_ics22_break.log"
+        ics22_time = parse_result_sgnn(file, ["mark_cache_copy_time"])[0]
+        print("graphsage\t{}\t{}\t{:.2f}\t{:.2f}\t{:.2f}".format(
+            dataset, topo_name,
+            clique_time, origin_time, ics22_time))
