@@ -4,11 +4,6 @@
   - [Overview](#overview)
   - [Paper's Hardware Configurations](#papers-hardware-configurations)
   - [Run A Single Experiment](#run-a-single-experiment)
-  - [Run All Experiments](#run-all-experiments)
-  - [Example output.](#example-output)
-  - [Clean Experiment Logs](#clean-experiment-logs)
-  - [FAQ](#faq)
-
 
 ## Overview
 Our experiments have been automated by scripts (`run.sh`).
