@@ -12,7 +12,7 @@ SamGraph is the framework shared by the above system. SGNN is the initial versio
     - [Software Version](#software-version)
     - [Install CUDA11.7](#install-cuda117)
     - [Install GNN Training Systems](#install-gnn-training-systems)
-    - [Change ULIMIT](#change-ulimit)
+    - [Change ULIMIT and Open THP](#change-ulimit-and-open-transparent-huge-pages)
   - [Dataset Preprocessing](#dataset-preprocessing)
   - [QuickStart: Use XGNN to train GNN models](#quickstart-use-xgnn-to-train-gnn-models)
   - [Experiments](#experiments)
@@ -102,8 +102,10 @@ We use conda to manage our python environment.
     ./build.sh
     ```
 
-### Change ULIMIT
-Both DGL and XGNN need to use a lot of system resources. DGL CPU sampling requires cro-processing communications while XGNN's data storage in host memory requires memlock(pin) memory to enable faster access between host memory and GPU memory. Hence we have to set the user limit.
+### Change ULIMIT and Open Transparent Huge Pages
+Both DGL and XGNN need to use a lot of system resources. DGL sampling requires cro-processing communications while XGNN's data storage in host memory requires memlock(pin) memory to enable faster access between host memory and GPU memory.
+To speed up the dataset loading, we recommend open the Transparent Huge Pages (THP) in the Linux system.
+Hence we have to set the user limit and open THP.
 
 
 Append the following content to `/etc/security/limits.conf` and then `reboot`:
@@ -125,6 +127,14 @@ unlimited
 unlimited
 ```
 
+Run the following commands as root privilege to open THP.
+```bash
+# for normal memory type
+echo "always" > /sys/kernel/mm/transparent_hugepage/enabled
+# for shared memory
+echo "always" > /sys/kernel/mm/transparent_hugepage/shmem_enabled
+```
+
 ### Docker Support
 We provide a Dockerfile to build the experiment image. The file is in the root directory of this repository. Users can use the following command to create a Docker environment.
 
@@ -134,7 +144,7 @@ docker build . -t xgnn:1.0 -f ./Dockerfile
 
 Then users can run tests in Docker.
 ```bash
-docker run --ulimit memlock=-1 --rm --gpus all -v ${HOST_DATA_DIR}:/graph-learning -it xgnn:1.0 bash
+docker run --ulimit memlock=-1 --shm-size 256G --rm --gpus all -v ${HOST_DATA_DIR}:/graph-learning -it xgnn:1.0 bash
 ```
 
 ## Dataset Preprocessing
@@ -153,7 +163,7 @@ python samgraph/sgnn/train_gcn.py --num-worker 4 --cache-policy degree --sample-
 
 ## Experiments
 
-Our experiments have been automated by scripts (`run.sh`). Each figure or table in our paper is treated as one experiment and is associated with a subdirectory in `xgnn/exp`.
+Our experiments have been automated by scripts (`run.sh`). Each figure or table in our paper is treated as one experiment and is associated with a subdirectory in `xgnn/evaluation`.
 
 
 
