@@ -48,9 +48,6 @@ sgnn_log=${log_dir}/sgnn_${model}_${ds_short}
 xgnn_log=${log_dir}/xgnn_${model}_${ds_short}
 
 dgl_data_root="/graph-learning/samgraph"
-if [ "$dataset" = "uk-2006-05" ] || [ "$dataset" = "com-friendster" ]; then
-    dgl_data_root="/data/samgraph"
-fi
 
 ### 1GPU ###
 # log=${dgl_log}_1wk
@@ -84,7 +81,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 2 --cache-policy degree --batc
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[2]} > ${log}.log 2> ${log}.err
 
-# ### 3GPU ###
+### 3GPU ###
 # log=${dgl_log}_3wk
 # python ${dgl_dir}/train_${model}.py --devices 0 1 2 --num-epoch ${num_epoch} \
 #     --dataset ${dataset} --root-path ${dgl_data_root} \
@@ -100,7 +97,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 3 --cache-policy degree --batc
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[3]} > ${log}.log 2> ${log}.err
 
-# ### 4GPU ###
+### 4GPU ###
 # log=${dgl_log}_4wk
 # python ${dgl_dir}/train_${model}.py --devices 0 1 2 3 --num-epoch ${num_epoch} \
 #     --dataset ${dataset} --root-path ${dgl_data_root} \
@@ -132,7 +129,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 5 --cache-policy degree --batc
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[5]} > ${log}.log 2> ${log}.err
 
-# # 6GPU
+# 6GPU
 # log=${dgl_log}_6wk
 # python ${dgl_dir}/train_${model}.py --devices 0 1 2 3 4 5 --num-epoch ${num_epoch} \
 #     --dataset ${dataset} --root-path ${dgl_data_root} \
@@ -148,7 +145,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 6 --cache-policy degree --batc
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[6]} > ${log}.log 2> ${log}.err
 
-# # 7GPU
+# 7GPU
 # log=${dgl_log}_7wk
 # python ${dgl_dir}/train_${model}.py --devices 0 1 2 3 4 5 6 --num-epoch ${num_epoch} \
 #     --dataset ${dataset} --root-path ${dgl_data_root} \
@@ -164,7 +161,7 @@ python ${sgnn_dir}/train_${model}.py --num-worker 7 --cache-policy degree --batc
     --num-epoch ${num_epoch} --dataset ${dataset} --pipeline --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage ${xgnn_cache_pct[7]} > ${log}.log 2> ${log}.err
 
-# # 8GPU
+# 8GPU
 # log=${dgl_log}_8wk
 # python ${dgl_dir}/train_${model}.py --devices 0 1 2 3 4 5 6 7 --num-epoch ${num_epoch} \
 #     --dataset ${dataset} --root-path ${dgl_data_root} \
@@ -188,3 +185,9 @@ scalability "papers100M" "pa" "gcn"
 
 # uk graphsage
 scalability "uk-2006-05" "uk" "graphsage"
+
+# parse the results
+python parse_res.py -d ${log_dir} > scalability.dat
+
+# figure the result, the output is file "scalability.eps"
+gnuplot figure.plt

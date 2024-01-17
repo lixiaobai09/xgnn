@@ -63,3 +63,10 @@ python ${sgnn_dir}/train_${model}.py --num-worker 8 --cache-policy degree --batc
 python ${sgnn_dir}/train_${model}.py --num-worker 8 --cache-policy degree --batch-size 6000 \
     --num-epoch ${num_epoch} --dataset ${dataset} --sample-type khop3 --part-cache \
     --gpu-extract --use-dist-graph 1 --cache-percentage 0.51 > ${log}-bk.log 2> ${log}-bk.err
+
+
+# parse the results
+python parse_res.py -d ${log_dir} > memory-usage.dat
+
+# plot the figure, the output file is "memory-usage.eps"
+gnuplot figure.plt
