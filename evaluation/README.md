@@ -42,9 +42,9 @@ evaluation
 
 ## Run A Single Experiment
 
-The following commands are used to run a certain experiment(e.g. table4).
+The following commands are used to run a certain experiment(e.g. figure10).
 
 ```bash
-cd xgnn/evaluation/table4
+cd xgnn/evaluation/figure10
 bash run.sh
 ```
