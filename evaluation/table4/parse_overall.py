@@ -12,7 +12,7 @@ dataset_short_name = {
         }
 model_list = ['gcn', 'graphsage', 'pinsage']
 dataset_list = ['tw', 'pa', 'uk', 'cf']
-system_list = ['dgl', 'sgnn', 'xgnn', 'quiver']
+system_list = ['dgl', 'sgnn', 'xgnn']
 
 mock = True
 if (mock):
@@ -30,7 +30,6 @@ def parse_args():
     argparser = argparse.ArgumentParser('Acc Timeline Parser')
     argparser.add_argument('-d', '--directory', type=str,
             help='the log file directory path to parse')
-    argparser.add_argument('--quiver-dir', type=str)
     ret = vars(argparser.parse_args())
     if (ret['directory'] == None):
         argparser.error('Add --file argument')
@@ -80,23 +79,9 @@ def parse_result_dgl(file_name, show_list, split_str, end_str):
         else:
             print(OOM, end=end)
 
-
-def parse_result_quiver(quiver_dir, model, ds, end_str):
-    if model == 'pinsage':
-        return print()
-    if model == 'graphsage':
-        model = 'sage'
-    quiver_log_pl0 = f'{quiver_dir}/{model}-{ds}-pl0'
-    quiver_log_pl1 = f'{quiver_dir}/{model}-{ds}-pl1'
-    quiver_log_pl2 = f'{quiver_dir}/{model}-{ds}-pl2'
-    # TODO: parse result
-    
-
-
 if __name__ == '__main__':
     arguments   = parse_args()
     directory   = arguments['directory']
-    quiver_dir = arguments['quiver_dir']
     if (mock):
         print('model\tdataset\tdgl\tsgnn\txgnn')
     for model in model_list:
@@ -117,8 +102,6 @@ if __name__ == '__main__':
                             ],
                             split_str = split_in,
                             end_str = split_out)
-                elif (system == 'quiver'):
-                    parse_result_quiver(quiver_dir, )
                 else:
                     file_name_break = \
                             f'{directory}/{system}_{model}_{dataset}_break.log'

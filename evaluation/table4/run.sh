@@ -135,7 +135,7 @@ docker run --name "quiver_eval" \
     --mount type=bind,source=$(pwd)/${quiver_log_dir},target=/logs \
     --mount type=bind,source=${dataset_cache_root},target=/quiver-baseline \
     --env APP_RREFIX=/quiver/benchmarks \
-    --rm -it --gpus=all --shm-size=192g "quiver" $cmd
+    --rm -it --gpus=all --shm-size=192g anlarry/quiver $cmd
 
 
 # parse the results for DGL,DGL+C,XGNN
