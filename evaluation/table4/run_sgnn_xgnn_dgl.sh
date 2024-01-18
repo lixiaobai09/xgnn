@@ -120,8 +120,26 @@ python ${sgnn_dir}/train_graphsage.py --num-worker ${num_worker} --cache-policy 
 python ${sgnn_dir}/train_pinsage.py --num-worker ${num_worker} --cache-policy degree --batch-size 6000 --num-epoch ${num_epoch} --dataset ${dataset} --gpu-extract --part-cache --use-dist-graph 1.0 --cache-percentage 0.28 > ${log_dir}/xgnn_pinsage_cf_break.log 2> ${log_dir}/xgnn_pinsage_cf_break.log.err
 
 
+# run quiver
+cmd="/bin/bash /quiver/eval_entry.sh"
+dataset_cache_root=/data/quiver-baseline
+if [ ! -d $dataset_cache_root ]; then
+    dataset_cache_root=/dev/shm
+fi
+
+quiver_log_dir=./run-logs/overall/
+mkdir -p $quiver_log_dir
+
+docker run --name "quiver_eval" \
+    --mount type=bind,source=/graph-learning,target=/graph-learning,readonly \
+    --mount type=bind,source=$(pwd)/${quiver_log_dir},target=/logs \
+    --mount type=bind,source=${dataset_cache_root},target=/quiver-baseline \
+    --env APP_RREFIX=/quiver/benchmarks \
+    --rm -it --gpus=all --shm-size=192g "quiver" $cmd
+
+
 # parse the results for DGL,DGL+C,XGNN
-python parse_overall.py -d ${log_dir}
+python parse_overall.py -d ${log_dir} --quiver-dir ${quiver_log_dir}
 
 
 << EOF
