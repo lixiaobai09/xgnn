@@ -147,6 +147,29 @@ Then users can run tests in Docker.
 docker run --ulimit memlock=-1 --shm-size 256G --rm --gpus all -v ${HOST_DATA_DIR}:/graph-learning -it xgnn:1.0 bash
 ```
 
+We also support the docker images for the quiver and wholegraph systems. Use the following commands to run these systems. and the source code of these systems can be found in the docker.
+```bash
+# run quiver with docker image
+# DATASET_PATH: the xgnn dataset path
+# LOG_PATH: the directory to store quiver logs
+# DATASET_CACHE_ROOT: the directory to store temporary dataset in quiver
+docker run --name "quiver_eval" \
+    --mount type=bind,source=${DATASET_PATH},target=/graph-learning,readonly \
+    --mount type=bind,source=${LOG_PATH},target=/logs \
+    --mount type=bind,source=${DATASET_CACHE_ROOT},target=/quiver-baseline \
+    --env APP_RREFIX=/quiver/benchmarks \
+    --rm -it --gpus=all --shm-size=192g anlarry/quiver /bin/bash /quiver/eval_entry.sh
+
+# run wholegraph with docker image
+# DATASET_PATH: the xgnn dataset path
+# LOG_PATH: the directory to store wholegraph logs
+docker run --name "wholegraph_eval" \
+    --mount type=bind,source=${DATASET_PATH},target=/graph-learning,readonly \
+    --mount type=bind,source=${LOG_PATH},target=/logs \
+    --env APP_RREFIX=/wholegraph/examples/gnn_v2 \
+    --rm -it --gpus=all --ipc=host anlarry/wholegraph  /bin/bash /wholegraph/examples/gnn_v2/run_8xA100.sh
+```
+
 ## Dataset Preprocessing
 
 See [`datagen/README.md`](datagen/README.md) to find out how to preprocess datasets.
